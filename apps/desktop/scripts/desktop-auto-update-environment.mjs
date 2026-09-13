@@ -6,6 +6,15 @@ import { prerelease, valid } from 'semver'
 export const DESKTOP_AUTO_UPDATE_ENV = 'DSH_DESKTOP_AUTO_UPDATE_ENV'
 
 const UPDATE_ENVIRONMENTS = {
+  // 企业自托管更新源：DSH_ENTERPRISE_UPDATE_ORIGIN 指向自有 HTTPS 静态服务器，
+  // 产物由 IT 手动上传（无需腾讯 COS）。
+  enterprise: {
+    originEnvName: 'DSH_ENTERPRISE_UPDATE_ORIGIN',
+    fixedOrigin: undefined,
+    bucketEnvName: undefined,
+    secretIdEnvName: undefined,
+    secretKeyEnvName: undefined,
+  },
   test: {
     originEnvName: 'DOWNLOAD_TEST_ORIGIN',
     fixedOrigin: undefined,
@@ -31,8 +40,8 @@ const UPDATE_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64'])
  */
 export function resolveDesktopAutoUpdateEnvironment(env) {
   const value = env[DESKTOP_AUTO_UPDATE_ENV]?.trim() || 'test'
-  if (value !== 'test' && value !== 'production') {
-    throw new Error(`desktop auto-update: ${DESKTOP_AUTO_UPDATE_ENV} must be "test" or "production"`)
+  if (value !== 'test' && value !== 'production' && value !== 'enterprise') {
+    throw new Error(`desktop auto-update: ${DESKTOP_AUTO_UPDATE_ENV} must be "test", "production" or "enterprise"`)
   }
   return value
 }

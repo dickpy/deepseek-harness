@@ -8,6 +8,12 @@
  * Export discipline: packages/client/AGENTS.md.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import {
+  enterpriseHiddenVersion, isEnterpriseHidden, settingsSectionSurface, subscribeEnterpriseHidden,
+} from './enterprise-filter.ts'
+
+/** fork: 设置 tab 的表面 id 命名约定（写入方 ui-enterprise 与设置壳共用）。 */
+export { settingsSectionSurface } from './enterprise-filter.ts'
 // Type-only: pulls the ctx.remote merge and its fixed Host facts.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
@@ -90,6 +96,7 @@ export function apply(ctx: ClientContext): void {
   // key includes the locale revision and subscribers ride both sources.
   let rowsVersion = -1
   let rowsRevision = -1
+  let rowsHiddenVersion = -1
   let rows: readonly SettingsSectionRow[] = []
   let onboardingVersion = -1
   let onboardingSteps: readonly SettingsOnboardingStep[] = []
@@ -101,9 +108,12 @@ export function apply(ctx: ClientContext): void {
         getSnapshot: () => {
           const version = ctx.slots.getVersion('settings.section')
           const revision = ctx.locale.getSnapshot().revision
-          if (version !== rowsVersion || revision !== rowsRevision) {
+          // fork: 企业菜单权限过滤（enterprise-filter.ts），隐藏版本参与快照失效
+          const hiddenVersion = enterpriseHiddenVersion()
+          if (version !== rowsVersion || revision !== rowsRevision || hiddenVersion !== rowsHiddenVersion) {
             rowsVersion = version
             rowsRevision = revision
+            rowsHiddenVersion = hiddenVersion
             rows = ctx.slots.entries('settings.section')
               .map(e => ({
                 /* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */
@@ -111,6 +121,8 @@ export function apply(ctx: ClientContext): void {
                 order: e.options.order ?? 0,
                 label: resolveSlotLabel(e.options.label) ?? '',
               }))
+              // fork: 表面 id = settings.<tab id>，与企业客户端插件写入的命名一致
+              .filter(row => !isEnterpriseHidden(settingsSectionSurface(row.id)))
               .sort((a, b) => a.order - b.order)
           }
           return rows
@@ -118,9 +130,12 @@ export function apply(ctx: ClientContext): void {
         subscribe: (listener) => {
           const offLedger = ctx.slots.subscribe('settings.section', listener)
           const offLocale = ctx.locale.subscribe(listener)
+          // fork: 企业菜单过滤变化也驱动导航行重投影
+          const offHidden = subscribeEnterpriseHidden(listener)
           return () => {
             offLedger()
             offLocale()
+            offHidden()
           }
         },
       },

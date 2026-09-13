@@ -1,4 +1,4 @@
-# DeepSeek Harness Desktop
+# 维小智 Desktop（DeepSeek Harness Desktop）
 
 English | [中文](README.zh.md)
 

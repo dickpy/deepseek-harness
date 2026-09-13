@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -50,13 +51,23 @@ export function createElectronBuilderConfig(
   if (windowsSigner !== undefined) {
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  // Fork patch: unsigned enterprise builds still embed the auto-update feed when
+  // DSH_ENTERPRISE_UPDATE_ORIGIN is set (electron-updater skips signature
+  // verification for unsigned Windows installs, so unsigned -> unsigned works).
+  const update = unsigned && !env.DSH_ENTERPRISE_UPDATE_ORIGIN
+    ? undefined
+    : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
   const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
   return {
     appId,
-    productName: 'DeepSeek Harness',
+    productName: '维小智',
     artifactName: 'deepseek-harness-${version}-${os}-${arch}.${ext}',
-    directories: { output: unsigned ? join(buildPaths.root, 'unsigned-artifacts') : buildPaths.artifacts },
+    // fork: 免签名产物目录可用 DSH_DESKTOP_UNSIGNED_OUT_DIR 指到仓库外（避开工作区索引器的文件锁）
+    directories: {
+      output: unsigned
+        ? (env.DSH_DESKTOP_UNSIGNED_OUT_DIR ?? join(buildPaths.root, 'unsigned-out'))
+        : buildPaths.artifacts,
+    },
     asar: true,
     files: [
       'lib/*.js',
@@ -69,9 +80,18 @@ export function createElectronBuilderConfig(
       { from: buildPaths.dsh, to: 'dsh' },
       // electron-builder excludes a source directory's root node_modules.
       { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules' },
+      // fork: 企业登录通道清单。打包期由 package-target.ts 按 DSH_ENTERPRISE_ENVIRONMENT
+      // 烘焙到构建目录；直接调用 electron-builder 时回落到仓库内的源清单。
+      {
+        from: existsSync(join(buildPaths.root, 'enterprise.json'))
+          ? join(buildPaths.root, 'enterprise.json')
+          : 'enterprise.json',
+        to: 'enterprise.json',
+      },
     ],
     mac: {
       category: 'public.app-category.developer-tools',
+      icon: 'build/icon.png',
       identity: macOSSigning?.signingIdentity,
       forceCodeSigning: true,
       hardenedRuntime: true,
@@ -105,6 +125,7 @@ export function createElectronBuilderConfig(
       )
     },
     win: {
+      icon: 'build/icon.ico',
       forceCodeSigning: !unsigned,
       signtoolOptions: {
         sign: windowsSigner,
@@ -114,6 +135,7 @@ export function createElectronBuilderConfig(
     },
     linux: {
       category: 'Development',
+      icon: 'build/icon.png',
       target: ['AppImage'],
     },
     nsis: {

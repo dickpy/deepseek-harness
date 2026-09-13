@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
 import type { SessionJob as JobView } from '@deepseek-ai/dsh-api-session-controller/types'
 import { IconChevronDownOutline14, StateDot, useDismissOnOutsidePointer, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { isEnterpriseHidden, subscribeEnterpriseHidden } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -12,6 +13,11 @@ export type JobListActionProps =
 
 /** Stable empty list so a session with no jobs keeps one array identity. */
 const NO_TASKS: readonly JobView[] = []
+
+/**
+ * fork: 企业管理台「后台任务」菜单权限控制的表面 id（写入方 ui-enterprise）。
+ */
+const TASKS_SURFACE = 'workspace.tasks'
 
 /** A job the registry still holds open, and whose duration therefore ticks. */
 function isLive(job: JobView): boolean {
@@ -92,6 +98,11 @@ function ordered(jobs: readonly JobView[]): JobView[] {
  * @returns the trigger and its popover list, or null when there is nothing to show.
  */
 export function JobListAction({ sessionId, useSessions, t }: JobListActionProps) {
+  // fork: 企业菜单权限把「后台任务」整块隐藏时，这个入口不渲染。
+  const tasksHidden = useSyncExternalStore(
+    subscribeEnterpriseHidden,
+    () => isEnterpriseHidden(TASKS_SURFACE),
+  )
   const jobs = useSessions(state => state.jobsBySession[sessionId]) ?? NO_TASKS
   const [open, setOpen] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -117,7 +128,7 @@ export function JobListAction({ sessionId, useSessions, t }: JobListActionProps)
     if (jobs.length === 0 && open) setOpen(false)
   }, [jobs.length, open])
 
-  if (jobs.length === 0) return null
+  if (tasksHidden || jobs.length === 0) return null
 
   const countKey = liveCount > 0
     ? (liveCount === 1 ? 'count.live.one' : 'count.live.other')

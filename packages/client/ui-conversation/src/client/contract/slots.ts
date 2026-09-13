@@ -162,6 +162,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.hero.brand.mark': { kind: 'single'; scope: 'root'; owner: HeroBrandMarkOwnerProps }
     /** Agent-preset control staged for a New Session. */
     'conversation.hero.agentPreset': { kind: 'single'; scope: 'root'; owner: HeroAgentPresetOwnerProps }
+    /**
+     * Module catalog staged for a New Session (WorkBuddy-style category tabs
+     * plus skill chips), rendered between the greeting and the composer.
+     * Session-maybe seat: occupants receive the standard input faces, so a
+     * picked skill can seed the draft; without a Session the actions are
+     * undefined and the occupant disables picking.
+     */
+    'conversation.hero.catalog': { kind: 'single'; scope: 'session-maybe' }
     /** Full-width entries above the composer card. */
     'conversation.input.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
     /** Floating entries rendered inside the resident composer card. */
@@ -373,6 +381,7 @@ export type ConversationSlotProps =
     | 'conversation.hero.brand.mark'
     | 'conversation.hero.workspace'
     | 'conversation.hero.agentPreset'
+    | 'conversation.hero.catalog'
   >
   & InjectFace<ConversationInjected>
   & PropsLocale<'conversation'>

@@ -63,6 +63,17 @@ export interface IConversation {
    */
   cancel(): Promise<void>
   /**
+   * Seed one Session's composer draft by id, before or after it is on stage.
+   *
+   * The session-addressed counterpart of the composer's own draft writes: a
+   * caller that just created the Session through the Workspace UI (技能广场的
+   * 「试一试」) uses this to put `/skill-name` in the box without owning the
+   * input machine. The draft is never submitted — the user completes and sends it.
+   * @param sessionId - listed or retained Session whose draft to replace.
+   * @param text - complete draft text.
+   */
+  seedDraft(sessionId: SessionId, text: string): void
+  /**
    * Pull one older history page for the scoped session.
    * @returns completion of the page pull.
    */
@@ -209,6 +220,16 @@ export class ConversationController extends Service implements IConversation {
     const session = this.scopedSession('send')
     const result = await session.prompt([{ type: 'text', text }], 'queue')
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /** Seed one Session's draft without owning its input machine (see the interface contract). */
+  seedDraft(sessionId: SessionId, text: string): void {
+    const shell = this.input as SessionInputResolver & {
+      shell?: (id: SessionId) => { setDraft(text: string): void }
+    }
+    // The resolver face is `for(actx)`; the id-addressed shell is the same
+    // object's hosted entry. A resolver without it (a test fake) seeds nothing.
+    shell.shell?.(sessionId).setDraft(text)
   }
 
   /**

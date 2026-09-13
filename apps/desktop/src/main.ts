@@ -9,6 +9,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  nativeTheme,
   protocol,
   type IpcMainInvokeEvent,
 } from 'electron'
@@ -21,6 +22,7 @@ import { formatDesktopMessage, resolveDesktopLocale } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { desktopErrorState } from './startup-error.ts'
+import { ensureEnterpriseGate, gateEnabled, clearEnterpriseSession } from './enterprise-gate.ts'
 import { startupFailureDocument } from './startup-document.ts'
 
 const SCHEME = 'dsh-app'
@@ -118,6 +120,42 @@ function createWindow(preload: string, show = false): BrowserWindow {
   return window
 }
 
+/**
+ * 登录窗：桌面比例的固定窗口，登录卡居中（样式与管理台登录页同族）。
+ * 不复用主窗口的 1280×840，也不参与应急恢复流程。
+ * @param preload - 壳 preload 脚本路径。
+ * @param title - 窗口标题，取自已解析的 locale。
+ * @returns 隐藏创建、就绪后再显示的登录窗。
+ */
+function createLoginWindow(preload: string, title: string): BrowserWindow {
+  const window = new BrowserWindow({
+    width: 960,
+    height: 600,
+    useContentSize: true,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    title,
+    // 与 renderer/login.css 的背景色一致，避免深色模式下进入时闪白
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f1218' : '#f7f8fa',
+    webPreferences: {
+      preload,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+    },
+  })
+  // 应用菜单在门禁完成后才构建，登录窗期间须移除 Electron 默认菜单栏（File/Edit/View/Window）
+  window.removeMenu()
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.on('will-navigate', (event, url) => {
+    if (new URL(url).protocol !== `${SCHEME}:`) event.preventDefault()
+  })
+  return window
+}
+
 function assertDesktopSender(event: IpcMainInvokeEvent, hostnames: readonly string[]): void {
   const senderFrame = event.senderFrame
   if (senderFrame === null) throw new Error('dsh desktop: rejected IPC without a sender frame')
@@ -149,6 +187,65 @@ async function serveShellAsset(request: Request): Promise<Response> {
 
 async function main(): Promise<void> {
   const resources = runtimeResources()
+  const locale = resolveDesktopLocale(app.getLocale())
+  const messages = locale.messages
+  const appPreload = fileURLToPath(new URL('./preload-app.cjs', import.meta.url))
+  const managementPreload = fileURLToPath(new URL('./preload.cjs', import.meta.url))
+  const startupUrl = `${SCHEME}://shell/startup.html`
+  const applicationUrl = `${SCHEME}://app/index.html`
+  let navigation: { window: BrowserWindow; url: string; promise: Promise<void> } | undefined
+  let emergencyDocument = false
+
+  // fork: 企业门禁协议面需要先注册（登录页资产走 dsh-app://shell）；后端句柄晚绑定。
+  // fork: 后端协议委托。门禁阶段（backend 尚未创建）dsh-app://app 一律 503，
+  // backend 就绪后由下方接管。登录页走 shell 资产，不受影响。
+  let appFetch: ((request: Request) => Promise<Response>) | undefined = undefined
+
+  protocol.handle(SCHEME, (request) => {
+    const url = new URL(request.url)
+    if (url.hostname === 'shell') return serveShellAsset(request).then((response) => {
+      if (response.status >= 400 && ['/startup.html', '/startup.js', '/startup.css', '/login.html', '/login.js', '/login.css'].includes(url.pathname)) {
+        void showEmergencyError(new Error(`Desktop resource could not be loaded: ${url.pathname} (HTTP ${response.status})`))
+          .catch((error: unknown) => { console.error(error) })
+      }
+      return response
+    })
+    if (url.hostname !== 'app') return Promise.resolve(new Response(null, { status: 404 }))
+    if (appFetch === undefined) return Promise.resolve(new Response('backend unavailable', { status: 503 }))
+    return appFetch(request)
+  })
+
+  // fork: 登录窗在门禁阶段就会经 preload 请求 locale；其余 shell IPC 面在门禁之后才注册，
+  // 此时若未就绪，登录页会整页退回英文兜底文案（含 "Sign in" 标题）。
+  ipcMain.handle(DESKTOP_IPC.localeGet, (event) => {
+    assertDesktopSender(event, ['shell'])
+    return locale
+  })
+
+  // fork: 退出登录/切换账号 —— 应用文档（dsh-app://app）经 preload 调用；
+  // 清掉本机会话后整应用重启，门禁自然落回登录窗。switch 连邮箱预填一起清。
+  ipcMain.handle('dsh-desktop:enterprise-logout', (event, payload: unknown) => {
+    assertDesktopSender(event, ['app'])
+    const mode = (payload as { mode?: unknown } | null)?.mode === 'switch' ? 'switch' : 'logout'
+    clearEnterpriseSession(mode)
+    app.relaunch()
+    app.quit()
+  })
+
+  // fork: 企业门禁 —— 独立 DSH_HOME + 登录窗硬门禁 + 凭据环境注入（必须先于一切数据目录解析）。
+  if (gateEnabled(process.env, app.isPackaged)) {
+    const gate = await ensureEnterpriseGate({
+      app,
+      env: process.env,
+      isPackaged: app.isPackaged,
+      warn: (message) => { console.warn('[dsh-enterprise-gate]', message) },
+      createWindow: () => createLoginWindow(appPreload, messages.enterpriseLoginWindowTitle),
+      windowTitle: messages.enterpriseLoginWindowTitle,
+      appName: messages.loginBrandName,
+    })
+    if (gate.kind === 'cancelled') return // 用户关闭登录窗：app.quit() 已触发
+  }
+
   const paths = resolveDesktopPaths()
   const development = app.isPackaged ? undefined : join(app.getAppPath(), '.desktop-build', 'development', 'project')
   const activeProject = development ?? paths.profile
@@ -161,14 +258,6 @@ async function main(): Promise<void> {
   let pluginWindow: BrowserWindow | undefined
   let shellInstallerOwnsQuit = false
   let updateState: DesktopUpdateState = { phase: 'idle' }
-  const locale = resolveDesktopLocale(app.getLocale())
-  const messages = locale.messages
-  const appPreload = fileURLToPath(new URL('./preload-app.cjs', import.meta.url))
-  const managementPreload = fileURLToPath(new URL('./preload.cjs', import.meta.url))
-  const startupUrl = `${SCHEME}://shell/startup.html`
-  const applicationUrl = `${SCHEME}://app/index.html`
-  let navigation: { window: BrowserWindow; url: string; promise: Promise<void> } | undefined
-  let emergencyDocument = false
 
   const showEmergencyError = async (error: unknown): Promise<void> => {
     if (quitting || emergencyDocument) return
@@ -211,6 +300,12 @@ async function main(): Promise<void> {
       fetch: (request: Request) => host.fetch(request),
     }
   }, (state) => {
+    // fork: 就绪后接管 dsh-app://app 分发
+    appFetch = (request: Request) => {
+      const active = backend.host
+      if (active === undefined) return Promise.resolve(new Response('backend unavailable', { status: 503 }))
+      return active.fetch(request)
+    }
     if (state.phase === 'starting' && !emergencyDocument) pageError = undefined
     publishBackend(backendState())
     if (state.phase === 'error') void navigateMain(startupUrl).catch((error: unknown) => { console.error(error) })
@@ -280,21 +375,6 @@ async function main(): Promise<void> {
     },
   )
 
-  protocol.handle(SCHEME, (request) => {
-    const url = new URL(request.url)
-    if (url.hostname === 'shell') return serveShellAsset(request).then((response) => {
-      if (response.status >= 400 && ['/startup.html', '/startup.js', '/startup.css'].includes(url.pathname)) {
-        void showEmergencyError(new Error(`Desktop recovery resource could not be loaded: ${url.pathname} (HTTP ${response.status})`))
-          .catch((error: unknown) => { console.error(error) })
-      }
-      return response
-    })
-    if (url.hostname !== 'app') return Promise.resolve(new Response(null, { status: 404 }))
-    const active = backend.host
-    if (active === undefined) return Promise.resolve(new Response('backend unavailable', { status: 503 }))
-    return active.fetch(request)
-  })
-
   const mutate = async (event: IpcMainInvokeEvent, mutation: Parameters<DesktopProjectManager['mutate']>[0]): Promise<void> => {
     assertDesktopSender(event, ['shell'])
     if (development !== undefined) {
@@ -311,10 +391,6 @@ async function main(): Promise<void> {
       throw error
     }
   }
-  ipcMain.handle(DESKTOP_IPC.localeGet, (event) => {
-    assertDesktopSender(event, ['shell'])
-    return locale
-  })
   ipcMain.handle(DESKTOP_IPC.pluginsList, (event) => {
     assertDesktopSender(event, ['shell'])
     if (development !== undefined) return []

@@ -8,6 +8,7 @@ export interface DesktopElectronBuilderConfig {
     { readonly from: string, readonly to: 'runtime' },
     { readonly from: string, readonly to: 'dsh' },
     { readonly from: string, readonly to: 'dsh/node_modules' },
+    { readonly from: string, readonly to: 'enterprise.json' },
   ]
   readonly mac: {
     readonly identity: string | undefined

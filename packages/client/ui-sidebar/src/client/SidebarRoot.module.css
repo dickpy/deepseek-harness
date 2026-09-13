@@ -65,6 +65,7 @@
    render stays static. */
 .railIn .iconButton,
 .railIn .newSession,
+.railIn .skillsArea,
 .railIn .panelList,
 .railIn .regionArea {
   animation: rail-in 150ms var(--ds-ease-in-out) backwards;
@@ -123,6 +124,11 @@
   background: transparent;
   color: inherit;
   cursor: pointer;
+}
+
+/* fork: 企业菜单隐藏「会话」时，品牌只作静态标识（不再是新建会话快捷入口）。 */
+.brandStatic {
+  cursor: default;
 }
 
 /* Mark and name are independent slots; the shell owns their shared baseline,
@@ -357,6 +363,21 @@
   margin-bottom: 12px;
 }
 
+/* fork: 企业内部导航（技能广场）行所在区域——夹在「新会话」与工作区之间。
+   容器自身不画任何东西（未注册时高度为 0），行样式由占用方负责。 */
+.skillsArea {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  margin: 0 2px 8px;
+  min-width: 0;
+}
+
+.collapsed .skillsArea {
+  align-items: center;
+  margin: 0 0 12px;
+}
+
 .collapsed .panelRow {
   width: 36px;
   height: 36px;
@@ -385,26 +406,33 @@
   padding-left: 0;
 }
 
-/* Footer seats: additive actions stack above Settings. Each occupant owns its
-   button geometry and hover chrome. */
+/* Footer row (fork): additive actions hold the left edge, the Settings seat is
+   pinned to the right. Each occupant owns its button geometry and hover chrome;
+   the left seat absorbs the slack so a long account name ellipsizes instead of
+   displacing Settings. The rail stacks and centers both seats. */
 .footArea {
   flex: none;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
 }
 
-.settingsArea,
 .footerActions {
-  flex: none;
+  flex: 1 1 auto;
   min-width: 0;
-  width: 100%;
-}
-
-.footerActions {
   display: flex;
 }
 
+.settingsArea {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
 .collapsed .footArea {
+  flex-direction: column;
   align-items: center;
 }
 
@@ -420,6 +448,7 @@
   .fading > *,
   .railIn .iconButton,
   .railIn .newSession,
+  .railIn .skillsArea,
   .railIn .panelList,
   .railIn .footArea,
   .railIn .regionArea {

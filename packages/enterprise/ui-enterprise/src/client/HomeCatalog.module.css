@@ -1,0 +1,87 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+/* 大类（模块）tab：胶囊分段，选中态黑底白字 */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.tab {
+  height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.72;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.tab:hover { opacity: 1; }
+
+.tab[data-active='true'] {
+  background: #18181b;
+  color: #fff;
+  opacity: 1;
+  font-weight: 600;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tab[data-active='true'] {
+    background: #f4f5f7;
+    color: #151a23;
+  }
+}
+
+/* 小类（技能）chips：一行横向滚动 */
+.skills {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 2px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.skills::-webkit-scrollbar { display: none; }
+
+.skill {
+  flex: none;
+  height: 34px;
+  padding: 0 15px;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.skill:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  border-color: color-mix(in srgb, currentColor 24%, transparent);
+}
+
+.skill:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

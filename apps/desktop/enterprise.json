@@ -1,0 +1,8 @@
+{
+  "//": "企业版登录环境清单，打包时烘进 resources/enterprise.json。default 指定普通用户锁定的通道（登录页不显示切换）；打包时可用 DSH_ENTERPRISE_ENVIRONMENT=test|production 覆盖。environments 里的其余项仅内部模式（DSH_ENTERPRISE_INTERNAL=1）可见。url 必须带 /api/v1 后缀，客户端会在其后拼 /client/enroll 与 /client/config。",
+  "default": "test",
+  "environments": [
+    { "key": "test", "label": "测试", "url": "http://localhost:8080/api/v1" },
+    { "key": "production", "label": "生产", "url": "http://localhost:8080/api/v1" }
+  ]
+}

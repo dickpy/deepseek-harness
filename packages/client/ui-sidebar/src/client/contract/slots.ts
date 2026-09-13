@@ -31,6 +31,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'sidebar.panellist': { kind: 'list'; scope: 'root'; owner: SidebarPanelIconOwnerProps }
     /**
+     * fork 新增：企业内部导航行（技能广场），位置在「新会话」按钮与本包的
+     * 面板列表之间，样式与「新会话」行一致。声明方是本包的 'sidebar' 入口，
+     * 占用方（ui-enterprise）自己负责点击行为与选中态。
+     */
+    'sidebar.skills': { kind: 'single'; scope: 'root'; owner: SidebarSkillsOwnerProps }
+    /**
      * The workspace/session browsing region: section header, search, the
      * grouped/flat session list, and every workspace dialog. Declared by this
      * package's 'sidebar' entry (declaring is claiming); ui-workspace
@@ -69,6 +75,15 @@ export interface SidebarPanelIconOwnerProps {
   size: number
   /** Whether this panel is selected in the main column. */
   active: boolean
+}
+
+/**
+ * Owner share of the fork-added internal-navigation row (技能广场): the sidebar
+ * supplies only its column state; the occupant owns label, icon, and selection.
+ */
+export interface SidebarSkillsOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
+  wide: boolean
 }
 
 /** Serializable metadata for one active global panel list registration. */
@@ -137,6 +152,7 @@ export type SidebarRootComponentProps =
     | 'sidebar.brand.mark'
     | 'sidebar.brand.name'
     | 'sidebar.panellist'
+    | 'sidebar.skills'
     | 'sidebar.workspaces'
     | 'sidebar.settings'
     | 'sidebar.footer.action'

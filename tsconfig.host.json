@@ -327,6 +327,8 @@
     { "path": "./packages/experimental/agent-team-web-profile" },
     { "path": "./packages/workflow/workflow" },
     { "path": "./packages/workflow/workflow-worker-thread" },
+    { "path": "./packages/enterprise/plugin-enterprise" },
+    { "path": "./packages/enterprise/ui-enterprise" },
     { "path": "./packages/workflow/tool-workflow" },
     { "path": "./packages/workflow/tool-ralph" },
     { "path": "./packages/webhook/webhook" },

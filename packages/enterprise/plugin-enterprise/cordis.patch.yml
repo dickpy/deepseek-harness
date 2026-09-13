@@ -1,0 +1,15 @@
+# dsh 企业插件的组合层：向配置树插入插件条目。
+# 配置默认值从环境变量读取（!!js 在 Loader 中求值，可用 process.env）；
+# 首次注册所需的企业账号密码建议经受信 env / $DSH_HOME/.env 提供。
+- insert:
+    - id: dsh-enterprise
+      name: '@deepseek-ai/dsh-plugin-enterprise'
+      config:
+        serverUrl: !!js process.env.DSH_ENTERPRISE_SERVER_URL || 'http://localhost:8080/api/v1'
+        email: !!js process.env.DSH_ENTERPRISE_EMAIL || ''
+        passwordEnv: DSH_ENTERPRISE_PASSWORD
+        password: !!js process.env.DSH_ENTERPRISE_PASSWORD || ''
+        deviceName: !!js process.env.DSH_ENTERPRISE_DEVICE_NAME || ''
+        syncIntervalMs: 60000
+        telemetryEnabled: true
+        applyDefaultModel: true

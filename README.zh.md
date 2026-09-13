@@ -1,4 +1,4 @@
-# DeepSeek Harness
+# 维小智（DeepSeek Harness）
 
 [English](README.md) | 中文
 

@@ -9,6 +9,7 @@ import {
   resolveDesktopAutoUpdateConfig,
 } from './desktop-auto-update-environment.mjs'
 import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { parseEnterpriseManifest, resolveEnterpriseChannel } from '../src/enterprise-environments.ts'
 import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
@@ -268,6 +269,27 @@ function runPnpm(
   })
 }
 
+/**
+ * 把构建期选定的通道写进随包发布的 enterprise.json。
+ *
+ * 普通用户锁定 default 指向的通道，登录页不渲染切换入口；internal 模式仍能看到全部通道。
+ * @param root - 目标构建目录（清单与其它产物同级）。
+ * @param environment - DSH_ENTERPRISE_ENVIRONMENT 的取值；缺省时沿用源清单的 default。
+ * @returns 烘焙后的清单路径。
+ * @throws 源清单结构/地址非法，或所选通道不存在时抛出，让打包直接失败。
+ */
+export function bakeEnterpriseManifest(root: string, environment?: string): string {
+  const manifest = parseEnterpriseManifest(readFileSync(join(APP_ROOT, 'enterprise.json'), 'utf8'))
+  const channel = resolveEnterpriseChannel(manifest, environment)
+  const target = join(root, 'enterprise.json')
+  writeFileSync(target, `${JSON.stringify({
+    '//': '由 apps/desktop/enterprise.json 于打包期生成；default 是普通用户锁定的通道，其余通道仅内部模式可见。',
+    default: channel.locked.key,
+    environments: manifest.environments,
+  }, undefined, 2)}\n`)
+  return target
+}
+
 async function main(): Promise<void> {
   const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
   const { target } = invocation
@@ -310,6 +332,8 @@ async function main(): Promise<void> {
   await runPnpm(['run', 'prepare:runtime'], targetEnv)
   await runPnpm(['run', 'prepare:packages'], targetEnv)
   await runPnpm(['run', 'prepare:dsh'], targetEnv)
+  // fork: 构建期通道烘焙必须先于 electron-builder（extraResources 引用该产物）
+  bakeEnterpriseManifest(buildPaths.root, process.env.DSH_ENTERPRISE_ENVIRONMENT)
   if (invocation.prepareOnly) return
   if (target.platform === 'darwin' && !invocation.directory) {
     await runPnpm([

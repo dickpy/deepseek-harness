@@ -20,5 +20,19 @@ const startup: DshDesktopStartupApi = {
   resetConfiguration: () => ipcRenderer.invoke(DESKTOP_IPC.configurationReset) as Promise<void>,
 }
 
+const enterprise = {
+  context: () => ipcRenderer.invoke('dsh-desktop:enterprise-login-context'),
+  submit: (payload: { serverUrl: string; email: string; password: string }) =>
+    ipcRenderer.invoke('dsh-desktop:enterprise-login-submit', payload),
+  complete: () => ipcRenderer.invoke('dsh-desktop:enterprise-login-complete') as Promise<void>,
+}
+
+/** 应用文档可用的企业会话操作：退出登录（保留邮箱预填）与切换账号（清空预填）。 */
+const enterpriseSession = {
+  enterpriseLogout: (mode: 'logout' | 'switch') =>
+    ipcRenderer.invoke('dsh-desktop:enterprise-logout', { mode }) as Promise<void>,
+}
+
 contextBridge.exposeInMainWorld('dshDesktop', location.protocol === 'dsh-app:' && location.hostname === 'shell'
-  ? startup : { protocolVersion: 1 })
+  ? { ...startup, enterprise }
+  : { protocolVersion: 1, ...enterpriseSession })

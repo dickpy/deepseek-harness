@@ -15,8 +15,8 @@ describe('desktop locale dictionaries', () => {
       .toBe('plugin@1.2.3 {missing}')
   })
 
-  it('keeps visible plugin-manager HTML copy in the locale dictionaries', () => {
-    const html = readFileSync(new URL('../renderer/plugin-manager.html', import.meta.url), 'utf8')
+  it.each(['plugin-manager.html', 'login.html'])('keeps visible %s copy in the locale dictionaries', (file) => {
+    const html = readFileSync(new URL(`../renderer/${file}`, import.meta.url), 'utf8')
     const staticText = [...html.matchAll(/>([^<]*\p{L}[^<]*)</gu)].map(match => match[1]?.trim())
     expect(staticText).toEqual([])
   })
