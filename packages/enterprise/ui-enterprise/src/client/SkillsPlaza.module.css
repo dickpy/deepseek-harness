@@ -1,11 +1,11 @@
 .root {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   width: 100%;
-  max-width: 1080px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 28px 24px 40px;
+  padding: 24px 24px 40px;
   overflow-y: auto;
   box-sizing: border-box;
 }
@@ -30,10 +30,87 @@
   color: color-mix(in srgb, currentColor 62%, transparent);
 }
 
-/* 卡片墙：按可用宽度自动排 2~4 列 */
+/* 工具条：搜索 + 启用状态筛选 + 计数，与卡片墙同宽 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.search {
+  flex: 1 1 240px;
+  min-width: 180px;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, currentColor 3%, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.search::placeholder {
+  color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.search:focus-visible {
+  outline: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  outline-offset: 1px;
+}
+
+.filters {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+.filter {
+  height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.filter:hover {
+  color: inherit;
+}
+
+.filterActive {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: inherit;
+  font-weight: 500;
+}
+
+.count {
+  font-size: 12px;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.error {
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, #dc2626 30%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, #dc2626 10%, transparent);
+  color: #dc2626;
+  font-size: 12.5px;
+}
+
+/* 卡片墙：按可用宽度自动排 2~5 列 */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
   gap: 12px;
 }
 
@@ -51,6 +128,15 @@
 .card:hover {
   border-color: color-mix(in srgb, currentColor 24%, transparent);
   background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+/* 关闭态整卡降饱和，但仍然可读、可操作（用户还要能重新打开） */
+.cardOff {
+  opacity: 0.62;
+}
+
+.cardOff:hover {
+  opacity: 1;
 }
 
 .cardHead {
@@ -74,11 +160,20 @@
   font-weight: 600;
 }
 
+/* 标题区点击打开详情：用按钮承载，键盘可达（Tab + Enter） */
 .cardTitle {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
 }
 
 .name {
@@ -96,6 +191,41 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 开关：自绘，避免为一个控件引入组件库 */
+.switch {
+  flex: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.switchOn {
+  background: #16a34a;
+  border-color: transparent;
+}
+
+.switchKnob {
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  transform: translateY(-50%);
+  transition: inset-inline-start 0.16s ease;
+}
+
+.switchOn .switchKnob {
+  inset-inline-start: 16px;
 }
 
 .description {
@@ -175,4 +305,132 @@
   margin: 0;
   font-size: 12.5px;
   color: color-mix(in srgb, currentColor 62%, transparent);
+}
+
+/* ===== 详情弹窗 ===== */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 42%, transparent);
+}
+
+.dialog {
+  width: min(560px, 100%);
+  max-height: min(640px, 100%);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 14px;
+  background: Canvas;
+  color: CanvasText;
+  box-shadow: 0 18px 48px -12px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.dialogHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px 16px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.dialogClose {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dialogClose:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: inherit;
+}
+
+.dialogBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 4px;
+}
+
+.dialogTitle {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+}
+
+.dialogText {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.notice {
+  margin: 0 0 14px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, #d97706 34%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, #d97706 12%, transparent);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.metaList {
+  margin: 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.metaList > div {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px dashed color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.metaList > div:last-child {
+  border-bottom: 0;
+}
+
+.metaList dt {
+  flex: none;
+  width: 84px;
+  font-size: 12.5px;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.metaList dd {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12.5px;
+  word-break: break-word;
+}
+
+.mono {
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.dialogFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
 }

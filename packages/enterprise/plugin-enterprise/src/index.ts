@@ -8,7 +8,10 @@
  *  3. 会话首页目录：把管理台「首页配置」的一级/二级 tab 写进 `dsh-enterprise`
  *     设置节，客户端插件据此渲染首页
  *  4. 技能下发：把管理台「技能广场」按角色下发的技能落到 `$DSH_HOME/skills/<name>/`，
- *     由 dsh 的技能加载器装载；撤销授权/下线时移除本插件先前落盘的目录
+ *     由 dsh 的技能加载器装载；撤销授权/下线时移除本插件先前落盘的目录。
+ *     桌面端「技能广场」的启用/关闭开关写进同一个设置节的 `disabledSkills`，
+ *     本插件据此把对应技能文件的 `disable-model-invocation` 调成当前状态——
+ *     关闭的技能不进模型可见的技能目录，但 `/技能名` 的显式调用仍然可用。
  *  5. 用量遥测：订阅 session/event 折叠每次模型调用的 token 用量（仅元数据），
  *     攒批上报，不含会话内容
  *
@@ -93,6 +96,20 @@ interface CloudConfig {
   /** 配置版本号：管理台「同步到客户端」或内容变化时推进会递增 */
   configRevision?: number
   skills?: SkillSummary[]
+  /** 会话首页样例（管理台「首页配置 → 首页样例配置」下发；空数组 = 不显示案例区） */
+  examples?: HomeExampleSummary[]
+}
+
+/** 管理台下发的一个首页样例（样例图已解析成 data URL） */
+interface HomeExampleSummary {
+  id: string
+  label: string
+  summary?: string | null
+  prompt: string
+  skill?: string | null
+  image: string
+  artifacts?: { label: string; note?: string }[] | null
+  order?: number
 }
 
 interface TelemetryEvent {
@@ -115,7 +132,7 @@ interface EnterpriseCtx {
       ns: string,
       schema: unknown,
       options?: { base?: unknown },
-    ): { replace(section: object): Promise<void>; update(patch: object): Promise<void>; get(): unknown }
+    ): SettingsScopeLike
   }
   inject(names: string[], callback: (ctx: EnterpriseCtx) => void): void
   credentials: {
@@ -124,6 +141,17 @@ interface EnterpriseCtx {
   }
   on(name: string, listener: (...args: never[]) => void): unknown
   effect(fn: () => unknown, name?: string): unknown
+}
+
+/** 一个命名空间 scope 的最小面：设置桥用 get/replace，技能开关监听用 watch */
+interface SettingsScopeLike {
+  get(): unknown
+  replace(section: object): Promise<void>
+  /**
+   * 观察该命名空间已提交的变更。可选：老版本 settings 服务没有这个方法，
+   * 那时「技能广场」的开关退化成「下一轮云端同步时生效」。
+   */
+  watch?(callback: (next: unknown, prev: unknown) => void | Promise<void>): () => void
 }
 
 const DEVICE_TOKEN_REF = 'DSH_ENTERPRISE_DEVICE_TOKEN'
@@ -147,6 +175,8 @@ const SESSION_SETTINGS_NS = 'dsh-enterprise'
 const homeActionSchema = z.object({
   id: z.string().default(''),
   label: z.string().default(''),
+  // 图标是一段短文本（emoji / 单个字形）；空串 = 客户端不显示图标
+  icon: z.string().default(''),
   skill: z.string().default(''),
   prompt: z.string().default(''),
 })
@@ -155,6 +185,7 @@ const homeActionSchema = z.object({
 const homeCategorySchema = z.object({
   id: z.string().default(''),
   label: z.string().default(''),
+  icon: z.string().default(''),
   actions: z.array(homeActionSchema).default([]),
 })
 
@@ -169,6 +200,23 @@ interface SessionSettings {
    * 客户端「技能广场」页面直接展示这一份清单，不再需要自己扫盘。
    */
   skills: { name: string; displayName: string; description: string; version: string; kind: string; fileCount: number; installed: boolean }[]
+  /**
+   * 会话首页样例（输入框下方可换一批的案例区）。
+   *
+   * 是**数组**而不是可选字段：与 `home` 的三态语义不同，样例没有「内置默认」，
+   * 平台没配就是空数组，客户端据此整块不渲染。样例图是 data URL，
+   * 所以这份清单的体积随图片走（管理台单张卡 400KB）。
+   */
+  examples: HomeExampleSummary[]
+  /**
+   * 用户在桌面端「技能广场」关掉的技能名。
+   *
+   * 这是**用户本机偏好**，不是云端下发的授权：授权决定「能不能用」，
+   * 这个列表决定「模型要不要自动看见」。它由客户端写、host 读——
+   * 写成 `publishSession` 会覆盖的字段就必须在这里列出来，
+   * 否则每轮云端同步都会把用户的开关重置掉。
+   */
+  disabledSkills: string[]
   /**
    * 会话首页一级/二级 tab（管理台「首页配置」下发）。
    * 缺省 = 平台从没配置过（客户端用内置默认）；空数组 = 管理员把 tab 都删了。
@@ -189,6 +237,25 @@ const skillSummarySchema = z.object({
   installed: z.boolean().default(false),
 })
 
+/** 首页样例里的「相关产物」 */
+const homeExampleArtifactSchema = z.object({
+  label: z.string().default(''),
+  note: z.string().default(''),
+})
+
+/** 一个首页样例的下发形态（与客户端 home-examples.ts 的 HomeExample 对应） */
+const homeExampleSchema = z.object({
+  id: z.string().default(''),
+  label: z.string().default(''),
+  summary: z.string().default(''),
+  prompt: z.string().default(''),
+  skill: z.string().default(''),
+  // 样例图是 data URL；空串在下发侧就会被过滤掉（没有图就没有卡片）
+  image: z.string().default(''),
+  artifacts: z.array(homeExampleArtifactSchema).default([]),
+  order: z.number().default(0),
+})
+
 const sessionSchema = z.object({
   serverUrl: z.string().default(''),
   user: z.object({
@@ -200,6 +267,11 @@ const sessionSchema = z.object({
   agents: z.array(z.string()).default([]),
   plugins: z.array(z.string()).default([]),
   skills: z.array(skillSummarySchema).default([]),
+  // 客户端「技能广场」的开关写入这里；host 据此过滤模型可见的技能目录。
+  // 名字列表（而不是对象）是为了让客户端只需要一次 set/unset 就能落一人份的偏好。
+  disabledSkills: z.array(z.string()).default([]),
+  // 首页样例：数组语义（没有内置默认），空数组 = 客户端不显示案例区
+  examples: z.array(homeExampleSchema).default([]),
   // 首页目录要保住三态，「没配过」必须表现为**字段缺省**（客户端据此回退内置默认），
   // 「配成空」表现为空数组。schemastery 对数组 schema 会把缺省值物化成 `[]`
   // （即使不写 default），`.default(undefined)` 又通不过它的类型，所以用联合：
@@ -305,6 +377,17 @@ async function sync(ctx: EnterpriseCtx, config: EnterpriseConfig, token: string)
   const installed = config.syncSkills
     ? await syncSkills(config, token, cloud.skills ?? [])
     : []
+  // 开关状态与磁盘对齐：刚下发/刚被重写的技能要把当前开关重新写回去，
+  // 用户手动改过的技能文件也在这一轮自愈。开关清单从设置文档现读——
+  // `sync` 是模块级函数，拿不到 apply 里那份 scope 句柄。
+  if (config.syncSkills && installed.length > 0) {
+    const section = ctx.settings.get(SESSION_SETTINGS_NS) as Partial<SessionSettings> | undefined
+    await reconcileSkillActivation(
+      join(resolveDshHome(), 'skills'),
+      installed,
+      readDisabledSkills(section),
+    ).catch((e: unknown) => { log('技能启用状态对齐失败（下个周期重试）：', e) })
+  }
   await publishSessionRef?.({
     user: cloud.user
       ? { email: cloud.user.email, name: cloud.user.name, role: cloud.user.role ?? '' }
@@ -321,6 +404,22 @@ async function sync(ctx: EnterpriseCtx, config: EnterpriseConfig, token: string)
       fileCount: skill.fileCount ?? 0,
       installed: installed.includes(skill.name),
     })),
+    // 首页样例：只保留结构性可用的条目（没有 id / 名称 / 样例图的卡片点不出任何东西）。
+    // 图片是 data URL，未发布或按角色过滤掉的根本不会出现在这里。
+    examples: (cloud.examples ?? [])
+      .filter(example => example.id !== '' && example.label !== '' && example.image !== '')
+      .map(example => ({
+        id: example.id,
+        label: example.label,
+        summary: example.summary ?? '',
+        prompt: example.prompt,
+        skill: example.skill ?? '',
+        image: example.image,
+        artifacts: (example.artifacts ?? [])
+          .filter(artifact => artifact.label !== '')
+          .map(artifact => ({ label: artifact.label, note: artifact.note ?? '' })),
+        order: example.order ?? 0,
+      })),
     ...(homeProvided ? { home: cloud.home as unknown[] } : {}),
     configRevision: cloud.configRevision ?? 0,
     lastSyncAt: new Date().toISOString(),
@@ -521,6 +620,150 @@ async function syncSkills(
 /** 设置文档桥的发布函数（apply 内注入）；sync 流程调用它把会话数据推给客户端 */
 let publishSessionRef: ((session: Partial<SessionSettings>) => Promise<void>) | null = null
 
+// ---------------------------------------------------------------------------
+// 技能启用/关闭：把桌面端「技能广场」的开关落到技能文件的 frontmatter 上
+//
+// 为什么不是「注册一个过滤 provider」：技能注册表把同层各 provider 的候选**合并**，
+// 一个 provider 不列出某个名字，另一个（`skill-filesystem`）照样列得出来；
+// provider 之间又读不到彼此的候选，所以「并列注册一个过滤器」在结构上做不到减法。
+// 能同时满足两条要求的地方是技能文件自己：dsh 的装载契约里
+// `disable-model-invocation: true` 让技能**不进模型可见的技能目录**，
+// 而 `/技能名` 的显式调用仍按名字加载正文——正好就是
+// 「关闭 = 模型不自动挑它，用户仍可显式调用」。
+//
+// 开关落在 `$DSH_HOME/skills/<name>/SKILL.md`，也就是插件自己下发的那个目录。
+// 目录被 `skill-filesystem` 监听，改完即时生效；云端同步也不会把它冲掉——
+// `syncSkills` 只在「版本变了或 SKILL.md 不存在」时重写文件，而我们每轮同步后
+// 还会按当前开关把这一行重新对齐一次（见 reconcileSkillActivation）。
+// ---------------------------------------------------------------------------
+
+/** 关闭时写进 frontmatter 的键（dsh 装载契约里的标准字段） */
+const DISABLE_MODEL_KEY = 'disable-model-invocation'
+
+/**
+ * 按当前开关把某个技能的 frontmatter 调成该有的样子。
+ *
+ * 只碰这一个键：frontmatter 其余内容与正文原样保留（用户可能手改过技能里的其它内容）。
+ * frontmatter 结构异常时**不写**——宁可开关不生效，也不能把一份技能改坏到装载不了。
+ *
+ * @param skillsRoot - 本机 `$DSH_HOME/skills` 目录。
+ * @param name - 技能名。
+ * @param disabled - true = 关闭（模型不可自动调用）。
+ * @returns 是否真的改了文件。
+ */
+async function applySkillActivation(skillsRoot: string, name: string, disabled: boolean): Promise<boolean> {
+  const file = join(skillsRoot, name, 'SKILL.md')
+  let content: string
+  try {
+    content = await readFile(file, 'utf8')
+  } catch {
+    return false // 本机没有这个技能（还没下发或已被移除），没有可改的东西
+  }
+  const next = withModelInvocation(content, disabled)
+  if (next === null || next === content) return false
+  await writeFile(file, next, 'utf8')
+  return true
+}
+
+/**
+ * 返回把 `disable-model-invocation` 调成指定状态后的 SKILL.md 全文。
+ *
+ * 关闭时把该键写在 frontmatter 末尾，开启时把它删掉；
+ * 其余行（含缩进的嵌套结构）一概不动。
+ *
+ * @param content - 当前 SKILL.md 全文。
+ * @param disabled - true = 需要写入该键；false = 需要删掉该键。
+ * @returns 新全文；结构不符（首行不是 `---`、没有闭合行）时返回 null。
+ */
+function withModelInvocation(content: string, disabled: boolean): string | null {
+  const newline = content.includes('\r\n') ? '\r\n' : '\n'
+  const lines = content.split(newline)
+  const first = lines[0]
+  if (first === undefined || first.replace(/\r$/, '') !== '---') return null
+  let closing = -1
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index]?.replace(/\r$/, '') === '---') { closing = index; break }
+  }
+  if (closing < 0) return null
+
+  const kept: string[] = []
+  for (let index = 1; index < closing; index += 1) {
+    const line = lines[index]
+    // `lines` 在这个区间里必定有值（closing 是从同一个数组里找出来的下标）
+    if (line === undefined) continue
+    // 只按顶层键匹配：缩进过的同名键属于嵌套结构，不动它
+    if (/^disable-model-invocation\s*:/i.test(line)) continue
+    kept.push(line)
+  }
+  if (disabled) kept.push(`${DISABLE_MODEL_KEY}: true`)
+  return [first, ...kept, ...lines.slice(closing)].join(newline)
+}
+
+/**
+ * 把设置里的开关状态与磁盘上的技能文件对齐。
+ *
+ * 两个触发点：客户端写设置后 `watch` 立即回调（开关点下去就生效），
+ * 以及每轮云端同步之后（自愈：用户手动改过技能文件、或技能刚被重新下发）。
+ *
+ * @param skillsRoot - 本机 `$DSH_HOME/skills` 目录。
+ * @param assigned - 授权到本机、且已确认落盘的技能名。
+ * @param disabled - 用户关掉的技能名。
+ * @returns 实际改写的文件数。
+ */
+async function reconcileSkillActivation(
+  skillsRoot: string,
+  assigned: readonly string[],
+  disabled: ReadonlySet<string>,
+): Promise<number> {
+  let changed = 0
+  for (const name of assigned) {
+    if (!SKILL_NAME.test(name)) continue
+    try {
+      if (await applySkillActivation(skillsRoot, name, disabled.has(name))) changed += 1
+    } catch (e) {
+      log(`技能 ${name} 的启用状态写入失败：`, e)
+    }
+  }
+  if (changed > 0) log(`技能启用状态已同步：更新 ${changed} 个技能文件`)
+  return changed
+}
+
+/**
+ * 观察「技能广场」开关设置，把变化即时落到技能文件上。
+ *
+ * 设置桥由另一条 inject 回调安装，可能晚于本函数，所以 scope 是现取的。
+ * 设置服务没有 `watch` 时静默跳过：开关仍然会在下一轮同步（默认 60s）生效。
+ *
+ * @param getScope - 现取设置桥 scope。
+ */
+function watchSkillActivation(getScope: () => SettingsScopeLike | null): void {
+  const scope = getScope()
+  if (scope?.watch === undefined) {
+    log('设置服务未提供 watch，「技能广场」开关将在下一轮云端同步时生效')
+    return
+  }
+  scope.watch((next) => {
+    const value = next as Partial<SessionSettings> | undefined
+    const assigned = (value?.skills ?? []).filter(skill => skill.installed).map(skill => skill.name)
+    return reconcileSkillActivation(
+      join(resolveDshHome(), 'skills'),
+      assigned,
+      readDisabledSkills(value),
+    ).then(() => undefined)
+  })
+}
+
+/**
+ * 从设置节里读出用户关掉的技能名。
+ * @param value - 设置节（可能尚未就绪）。
+ * @returns 合法的 kebab-case 技能名集合。
+ */
+function readDisabledSkills(value: Partial<SessionSettings> | null | undefined): ReadonlySet<string> {
+  const list = value?.disabledSkills
+  if (!Array.isArray(list)) return new Set()
+  return new Set(list.filter((name): name is string => typeof name === 'string' && SKILL_NAME.test(name)))
+}
+
 /** 用量折叠：request/header 记录当前路由，assistant/message 携带 token 账目 */
 class UsageFolder {
   private lastModel = new WeakMap<object, string>()
@@ -621,6 +864,11 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
       agents: session.agents ?? current.agents ?? [],
       plugins: session.plugins ?? current.plugins ?? [],
       skills: session.skills ?? current.skills ?? [],
+      // `replace` 会整段覆盖用户层，所以客户端写的开关必须原样带回：
+      // 漏掉这一行，用户每关一个技能都会在下一次云端同步（默认 60s）被打开。
+      disabledSkills: session.disabledSkills ?? current.disabledSkills ?? [],
+      // 首页样例是平台下发的内容（客户端只读），本轮回没带就保留上一份
+      examples: session.examples ?? current.examples ?? [],
       ...(home === undefined ? {} : { home }),
       configRevision: session.configRevision ?? current.configRevision ?? 0,
       lastSyncAt: session.lastSyncAt ?? new Date().toISOString(),
@@ -658,12 +906,15 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
             agents: [],
             plugins: [],
             skills: [],
+            disabledSkills: [],
+            examples: [],
             configRevision: 0,
             lastSyncAt: '',
           },
         },
       )
       void publishSession({})
+      watchSkillActivation(() => sessionScope)
     } catch (e) {
       log('安装 dsh-enterprise 设置节失败：', e)
     }

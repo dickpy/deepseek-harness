@@ -2,34 +2,55 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   width: 100%;
+  min-width: 0;
 }
 
-/* 大类（模块）tab：胶囊分段，选中态黑底白字 */
+/* 大类（模块）tab：胶囊分段，选中态实心、带一层浅阴影浮起来 */
 .tabs {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  max-width: 100%;
   padding: 4px;
   border-radius: 999px;
   background: color-mix(in srgb, currentColor 6%, transparent);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
+.tabs::-webkit-scrollbar { display: none; }
+
 .tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 32px;
   padding: 0 16px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: inherit;
-  opacity: 0.72;
+  opacity: 0.68;
   font: inherit;
   font-size: 13.5px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  transition: background-color 0.16s ease, color 0.16s ease, opacity 0.16s ease, box-shadow 0.16s ease;
+}
+
+/* 图标是一段文本（emoji / 单个字形），只做尺寸与对齐，不引入图标资源 */
+.tabIcon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.skillIcon {
+  font-size: 13.5px;
+  line-height: 1;
 }
 
 .tab:hover { opacity: 1; }
@@ -39,49 +60,73 @@
   color: #fff;
   opacity: 1;
   font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
 }
 
 @media (prefers-color-scheme: dark) {
   .tab[data-active='true'] {
     background: #f4f5f7;
     color: #151a23;
+    box-shadow: none;
   }
 }
 
-/* 小类（技能）chips：一行横向滚动 */
+/* 小类（技能）chips：与输入框同宽居中换行，一行放不下就折到下一行 */
 .skills {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 8px;
   max-width: 100%;
-  padding: 2px 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  padding: 0 4px;
 }
-
-.skills::-webkit-scrollbar { display: none; }
 
 .skill {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 34px;
   padding: 0 15px;
-  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 13%, transparent);
   border-radius: 10px;
-  background: transparent;
+  background: color-mix(in srgb, currentColor 3%, transparent);
   color: inherit;
   font: inherit;
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
 .skill:hover:not(:disabled) {
-  background: color-mix(in srgb, currentColor 7%, transparent);
-  border-color: color-mix(in srgb, currentColor 24%, transparent);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border-color: color-mix(in srgb, currentColor 26%, transparent);
+  transform: translateY(-1px);
+}
+
+.skill:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.skill:focus-visible {
+  outline: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  outline-offset: 1px;
 }
 
 .skill:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* 绑定了技能的 chip 左侧带一个极小的圆点：一行 chip 里能一眼看出
+   哪些是「带技能调用」的，哪些只是预设指令。 */
+.skill[data-skill]:not([data-skill=''])::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.42;
 }

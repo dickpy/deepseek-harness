@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { runInContext } from 'node:vm'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { JSDOM } from 'jsdom'
@@ -71,6 +71,30 @@ it('locks ordinary users to the shipped channel without rendering a switcher', a
   expect(page.element('submit-label').textContent).toBe('登 录')
 })
 
+it('shows the brand logo beside the heading and inside the idle submit button', async () => {
+  const page = login()
+  await page.ready()
+  // 页头只有「logo + 标题」：原来那行单独的「维 维小智」品牌名已经去掉
+  expect(page.document.querySelector('.heading-row .heading-logo')).not.toBeNull()
+  expect(page.document.querySelector('.brand-name')).toBeNull()
+  expect(page.element('heading').textContent).toBe('登录维小智')
+  // 登录按钮待机时左侧是 logo（提交中才换成 spinner）
+  expect(page.element('submit-logo').hidden).toBe(false)
+  expect(page.element('spinner').hidden).toBe(true)
+})
+
+it('ships the login logo asset that both img sources point at', async () => {
+  const page = login()
+  await page.ready()
+  const sources = new Set(
+    [...page.document.querySelectorAll('img')].map(node => node.getAttribute('src') ?? ''),
+  )
+  expect(sources).toEqual(new Set(['logo.png']))
+  // CSP 是 img-src 'self'，所以这里必须是随 renderer 一起打包的真实文件
+  const asset = statSync(new URL('../renderer/logo.png', import.meta.url))
+  expect(asset.size).toBeGreaterThan(1024)
+})
+
 it('offers every channel only in internal mode', async () => {
   const page = login({ internal: true, environments: [LOCKED, OTHER] })
   await page.ready()
@@ -120,13 +144,34 @@ it('celebrates only after the server accepts the credentials', async () => {
 it('keeps the window open, shows the reason, and never celebrates on rejection', async () => {
   const page = login({}, async () => ({ ok: false, message: '账号或密码错误' }))
   await page.ready()
+  // 待机态就不该转：spinner 初始必须是收起的，失败后也要回到待机态
+  expect(page.element('spinner').hidden).toBe(true)
   await page.paint('zhangsan@company.com', 'wrong')
   await expect.poll(() => page.element('error').hidden).toBe(false)
   expect(page.element('error').textContent).toBe('账号或密码错误')
   expect(page.element('card').className).not.toContain('is-success')
   expect(page.element('spinner').hidden).toBe(true)
+  expect(page.element('submit-logo').hidden).toBe(false)
   expect(page.element('submit-label').textContent).toBe('登 录')
   expect(page.complete).not.toHaveBeenCalled()
+})
+
+it('spins and hides the logo only while the credentials are in flight', async () => {
+  let release: (() => void) | undefined
+  const page = login({}, () => new Promise((resolve) => {
+    release = () => resolve({ ok: false, message: '账号或密码错误' })
+  }))
+  await page.ready()
+  await page.paint('zhangsan@company.com', 'secret')
+  // 提交中：spinner 转、logo 让位
+  await expect.poll(() => page.element('submit-label').textContent).toBe('登录中…')
+  expect(page.element('spinner').hidden).toBe(false)
+  expect(page.element('submit-logo').hidden).toBe(true)
+  release?.()
+  // 结算后回到待机：spinner 收起、logo 回来
+  await expect.poll(() => page.element('error').hidden).toBe(false)
+  expect(page.element('spinner').hidden).toBe(true)
+  expect(page.element('submit-logo').hidden).toBe(false)
 })
 
 it('surfaces a transport failure instead of silently staying busy', async () => {

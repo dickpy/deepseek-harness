@@ -93,8 +93,6 @@ async function init() {
 
   document.documentElement.lang = navigator.language?.startsWith('zh') ? 'zh-CN' : 'en'
   text('page-title', messages.enterpriseLoginWindowTitle ?? 'Sign in')
-  text('brand-mark', messages.loginBrandMark ?? '维')
-  text('brand-name', messages.loginBrandName ?? '')
   text('internal-badge', messages.loginInternalBadge ?? 'Internal')
   text('heading', messages.loginHeading ?? 'Sign in')
   text('description', messages.loginDescription ?? '')
@@ -118,7 +116,8 @@ async function init() {
     return
   }
 
-  if (context.appName) text('brand-name', context.appName)
+  // 窗口标题固定来自词典；`context.appName` 只用于「内部」徽标的英文兜底文案，
+  // 页头不再单独渲染品牌名（品牌已由标题左侧的 logo 承担）。
   $('internal-badge').hidden = !context.internal
 
   const envSelect = $('env')
@@ -142,7 +141,7 @@ $('form').addEventListener('submit', async (event) => {
   const label = $('submit-label')
   if (button.disabled) return
   button.disabled = true
-  $('spinner').hidden = false
+  busySubmit()
   $('error').hidden = true
   label.textContent = submittingLabel
   try {
@@ -151,11 +150,16 @@ $('form').addEventListener('submit', async (event) => {
       email: $('email').value.trim(),
       password: $('password').value,
     })
+    // 主进程可能因为窗口被关/通道被吊销而没有回话；没有明确结果就当作失败，
+    // 不能让按钮永远停在「登录中…」。
     if (result?.ok) {
       $('card').classList.add('is-success')
       text('heading', messages.loginWelcome ?? 'Welcome')
       text('description', messages.loginSuccess ?? '')
       label.textContent = successLabel
+      // 成功文案左侧保留品牌 logo：这一屏要传达的是「这是维小智」，不是「还在转」。
+      $('spinner').hidden = true
+      $('submit-logo').hidden = false
       celebrate()
       // 主进程已把设备令牌落盘；等彩带播完再放行启动流程。
       window.setTimeout(() => { void api.complete?.() }, CONFETTI_DURATION_MS * 0.6)
@@ -166,8 +170,24 @@ $('form').addEventListener('submit', async (event) => {
     showError(String(error))
   }
   button.disabled = false
-  $('spinner').hidden = true
-  label.textContent = submitLabel
+  idleSubmit()
 })
+
+/**
+ * 回到待机态：spinner 收起、品牌 logo 与待机文案回来。
+ * 失败与「主进程没有回话」都走这里——按钮绝不能停在「登录中…」。
+ */
+function idleSubmit() {
+  $('spinner').hidden = true
+  $('submit-logo').hidden = false
+  const label = $('submit-label')
+  if (label) label.textContent = submitLabel
+}
+
+/** 进入提交态：spinner 转起来，品牌 logo 让位。 */
+function busySubmit() {
+  $('spinner').hidden = false
+  $('submit-logo').hidden = true
+}
 
 init()

@@ -16,6 +16,8 @@
 export interface HomeAction {
   readonly id: string
   readonly label: string
+  /** 图标（emoji 或单个字形）；缺省表示不显示 */
+  readonly icon?: string
   /** 绑定的技能名；缺省表示只填预设指令 */
   readonly skill?: string
   /** 预设指令：填进输入框、用户可继续补充的种子文本 */
@@ -26,6 +28,8 @@ export interface HomeAction {
 export interface HomeCategory {
   readonly id: string
   readonly label: string
+  /** 图标（emoji 或单个字形）；缺省表示不显示 */
+  readonly icon?: string
   readonly actions: readonly HomeAction[]
 }
 
@@ -50,25 +54,30 @@ export const DEFAULT_HOME: EnterpriseHome = [
   {
     id: 'general',
     label: '通用助手',
+    icon: '💡',
     actions: [
       {
         id: 'docs',
         label: '文档处理',
+        icon: '📄',
         prompt: '帮我整理并润色这份文档：',
       },
       {
         id: 'analysis',
         label: '数据分析及可视化',
+        icon: '📊',
         prompt: '帮我分析这组数据，给出结论和可视化建议：',
       },
       {
         id: 'research',
         label: '深度研究',
+        icon: '🔍',
         prompt: '请深入研究以下主题，并给出结构化报告：',
       },
       {
         id: 'minutes',
         label: '会议纪要',
+        icon: '📝',
         prompt: '帮我把以下会议记录整理成纪要：',
       },
     ],
@@ -76,25 +85,30 @@ export const DEFAULT_HOME: EnterpriseHome = [
   {
     id: 'eam',
     label: 'EAM 设备管理',
+    icon: '🏭',
     actions: [
       {
         id: 'eam-query',
         label: '数据查询',
+        icon: '🔍',
         prompt: '查询最近的设备维修工单，并按状态汇总：',
       },
       {
         id: 'eam-analysis',
         label: '数据分析',
+        icon: '📈',
         prompt: '分析本月设备故障率趋势，给出结论：',
       },
       {
         id: 'eam-order',
         label: '工单处理',
+        icon: '🧾',
         prompt: '帮我创建一张设备维修工单：',
       },
       {
         id: 'eam-spare',
         label: '备件查询',
+        icon: '📦',
         prompt: '查询以下备件的库存与供应商信息：',
       },
     ],
@@ -102,20 +116,24 @@ export const DEFAULT_HOME: EnterpriseHome = [
   {
     id: 'qms',
     label: 'QMS 质量管理',
+    icon: '✅',
     actions: [
       {
         id: 'qms-iqc',
         label: '检验记录查询',
+        icon: '🔬',
         prompt: '查询最近的来料检验记录：',
       },
       {
         id: 'qms-spc',
         label: 'SPC 分析',
+        icon: '📐',
         prompt: '对这批关键尺寸数据做 SPC 分析：',
       },
       {
         id: 'qms-ncr',
         label: '不合格评审',
+        icon: '⚠️',
         prompt: '帮我起草一份不合格品评审报告：',
       },
     ],
@@ -136,9 +154,10 @@ export function decodeHome(value: unknown): EnterpriseHome | null {
   const categories: HomeCategory[] = []
   for (const entry of value) {
     if (typeof entry !== 'object' || entry === null) continue
-    const { id, label, actions } = entry as {
+    const { id, label, icon, actions } = entry as {
       id?: unknown
       label?: unknown
+      icon?: unknown
       actions?: unknown
     }
     if (typeof id !== 'string' || id === '' || typeof label !== 'string' || label === '') continue
@@ -147,10 +166,11 @@ export function decodeHome(value: unknown): EnterpriseHome | null {
     for (const action of actions) {
       if (typeof action !== 'object' || action === null) continue
       const {
-        id: actionId, label: actionLabel, skill, prompt,
+        id: actionId, label: actionLabel, icon: actionIcon, skill, prompt,
       } = action as {
         id?: unknown
         label?: unknown
+        icon?: unknown
         skill?: unknown
         prompt?: unknown
       }
@@ -159,12 +179,25 @@ export function decodeHome(value: unknown): EnterpriseHome | null {
       decodedActions.push({
         id: actionId,
         label: actionLabel,
+        ...optionalIcon(actionIcon),
         ...typeof skill === 'string' && skill !== '' ? { skill } : {},
         ...typeof prompt === 'string' && prompt !== '' ? { prompt } : {},
       })
     }
     if (decodedActions.length === 0) continue
-    categories.push({ id, label, actions: decodedActions })
+    categories.push({ id, label, ...optionalIcon(icon), actions: decodedActions })
   }
   return categories.length > 0 ? categories : null
+}
+
+/**
+ * 图标字段的宽松解码：只接受短字符串（emoji / 单个字形）。
+ *
+ * 上限 8 个 UTF-16 码元足以容纳带变体选择符的 emoji（如 `⚠️`），
+ * 又拦住把一整段文字塞进图标位——那会把 tab 撑变形。
+ * @param value - 服务端下发的 icon 字段。
+ * @returns 可展开进对象的 `{ icon }` 或空对象。
+ */
+function optionalIcon(value: unknown): { icon?: string } {
+  return typeof value === 'string' && value !== '' && value.length <= 8 ? { icon: value } : {}
 }

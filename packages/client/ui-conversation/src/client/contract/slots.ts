@@ -170,6 +170,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * undefined and the occupant disables picking.
      */
     'conversation.hero.catalog': { kind: 'single'; scope: 'session-maybe' }
+    /**
+     * Example gallery staged for a New Session (enterprise console's 「首页样例配置」),
+     * rendered BELOW the composer card so the case cards never push the input box
+     * down. Session-maybe seat like the catalog: picking a case fills the draft with
+     * `/<skill> <prompt>`, so the occupant needs the same input faces and disables
+     * picking when there is no Session.
+     */
+    'conversation.hero.gallery': { kind: 'single'; scope: 'session-maybe' }
     /** Full-width entries above the composer card. */
     'conversation.input.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
     /** Floating entries rendered inside the resident composer card. */
@@ -382,6 +390,7 @@ export type ConversationSlotProps =
     | 'conversation.hero.workspace'
     | 'conversation.hero.agentPreset'
     | 'conversation.hero.catalog'
+    | 'conversation.hero.gallery'
   >
   & InjectFace<ConversationInjected>
   & PropsLocale<'conversation'>

@@ -120,38 +120,26 @@ body::before {
   line-height: 18px;
 }
 
-.brand {
+/* 页头：品牌 logo 与「登录维小智」同排居中。品牌名不再单独占一行——
+   标题本身就带品牌，多一行反而把表单往下推。 */
+.heading-row {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-bottom: 18px;
+  gap: 10px;
+  margin-bottom: 6px;
 }
 
-.brand-mark {
+.heading-logo {
   flex: none;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 8px;
-  background: var(--primary);
-  color: var(--card);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.brand-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--muted);
-  letter-spacing: 0.2px;
+  object-fit: contain;
 }
 
 h1 {
-  margin: 0 0 6px;
+  margin: 0;
   text-align: center;
   font-size: 27px;
   font-weight: 700;
@@ -285,6 +273,9 @@ select {
   justify-content: center;
   gap: 8px;
   height: 44px;
+  /* 固定一个下限：待机是「logo + 登录」、提交中是「spinner + 登录中…」，
+     不设下限的话两种状态宽度不同，按钮会左右跳。 */
+  min-width: 148px;
   margin-top: 6px;
   border: 0;
   border-radius: 999px;
@@ -307,6 +298,17 @@ select {
 .submit:disabled {
   cursor: default;
   opacity: 0.7;
+}
+
+/* 提交按钮左侧的品牌 logo：与 spinner 互斥（待机 / 成功时显示 logo，提交中换 spinner）。
+   两者都在按钮的 flex 流里，并给按钮一个最小宽度，避免状态切换时整条按钮跳宽度。 */
+.submit-logo {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  object-fit: contain;
+  background: #fff;
 }
 
 .spinner {

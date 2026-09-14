@@ -349,6 +349,9 @@ export function ConversationRoot({
       {hero && heroWorkspaceRow}
       {zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
+      {/* 首页样例区（ui-enterprise 注入）：`hero.gallery` 只在空白会话渲染，
+          而且排在输入卡片**下面**——案例卡片再多也不会把输入框顶下去。 */}
+      {hero && renderSlot('conversation.hero.gallery', {})}
     </div>
   )
 

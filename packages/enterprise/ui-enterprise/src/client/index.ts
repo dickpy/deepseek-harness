@@ -22,6 +22,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { setEnterpriseHidden } from '@deepseek-ai/dsh-client-ui-slots'
 import { HomeCatalog } from './HomeCatalog.tsx'
+import { HomeGallery, type HomeGalleryInjected } from './HomeGallery.tsx'
 import { SidebarUserCard } from './SidebarUserCard.tsx'
 import { SkillsPlaza, type SkillsPlazaInjected } from './SkillsPlaza.tsx'
 import { SkillsSidebarEntry, type SkillsSidebarInjected } from './SkillsSidebarEntry.tsx'
@@ -137,6 +138,13 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     inject: homeInjected,
   }, HomeCatalog))
+  // 首页样例区：管理台「首页样例配置」下发的案例卡片（输入框下方，可换一批）
+  const galleryInjected = (): HomeGalleryInjected => ({ hooks: { home: store.store } })
+  ctx.slots.inject('conversation.hero.gallery', () => ctx.slots.register({
+    name: 'conversation.hero.gallery',
+    locale: NS,
+    inject: galleryInjected,
+  }, HomeGallery))
   const sidebarInjected = (): SkillsSidebarInjected => ({
     hooks: { home: store.store },
     selectPanel: (id) => { ctx.layout.selectPanel(id as MainPanelId | null) },
@@ -144,6 +152,9 @@ export function apply(ctx: ClientContext): void {
   const plazaInjected = (): SkillsPlazaInjected => ({
     hooks: { home: store.store },
     useSkill: (skill) => { void composeDraft(ctx, `/${skill}`) },
+    // 开关只写设置节的一个字段；host 插件监听同一节，把结果落到技能文件上
+    // （关闭 = 不进模型可见的技能目录，用户手打 /技能名 仍可显式调用）。
+    setSkillEnabled: (skill, enabled) => store.setSkillEnabled(skill, enabled),
   })
   ctx.slots.inject('sidebar.skills', () => ctx.slots.register({
     name: 'sidebar.skills',

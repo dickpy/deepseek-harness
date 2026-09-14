@@ -19,8 +19,9 @@ const HOME = [
   {
     id: 'general',
     label: '通用助手',
+    icon: '💡',
     actions: [
-      { id: 'docs', label: '文档处理', skill: 'doc-polish', prompt: '帮我整理并润色这份文档：' },
+      { id: 'docs', label: '文档处理', icon: '📄', skill: 'doc-polish', prompt: '帮我整理并润色这份文档：' },
       { id: 'minutes', label: '会议纪要', prompt: '帮我把以下会议记录整理成纪要：' },
     ],
   },
@@ -63,6 +64,21 @@ const CLOUD_CONFIG = {
       fileCount: 2,
     },
   ],
+  // 首页样例：图片是 data URL（最小 1x1 PNG），桌面端直接塞进 <img src>
+  examples: [
+    {
+      id: 'ex-1',
+      label: '年度数据报告',
+      summary: '交互式年度数据报告',
+      prompt: '请生成一个交互式年度数据报告单页',
+      skill: 'doc-polish',
+      image: `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')}`,
+      artifacts: [{ label: '年度数据报告.html', note: '单文件' }],
+      order: 0,
+    },
+    // 没有图片的样例在下发侧就会被丢掉（卡片点不出任何东西）
+    { id: 'ex-broken', label: '缺图', prompt: 'x', image: '' },
+  ],
 }
 
 /** The published section as the browser half reads it. */
@@ -73,7 +89,12 @@ interface PublishedSection {
    * 首页目录：字段缺省 = 平台没配置过（客户端用内置默认），
    * 空数组 = 管理员把 tab 删空了，有值 = 按配置渲染。
    */
-  home?: { id: string; label: string; actions: { id: string; skill: string; prompt: string }[] }[]
+  home?: {
+    id: string
+    label: string
+    icon: string
+    actions: { id: string; label: string; icon: string; skill: string; prompt: string }[]
+  }[]
   skills: {
     name: string
     displayName: string
@@ -83,6 +104,19 @@ interface PublishedSection {
     fileCount: number
     installed: boolean
   }[]
+  /** 用户在桌面端「技能广场」关掉的技能名（客户端写、host 读） */
+  disabledSkills: string[]
+  /** 首页样例（管理台「首页样例配置」下发；空数组 = 客户端不显示案例区） */
+  examples: {
+    id: string
+    label: string
+    summary: string
+    prompt: string
+    skill: string
+    image: string
+    artifacts: { label: string; note: string }[]
+    order: number
+  }[]
   configRevision: number
 }
 
@@ -91,6 +125,8 @@ interface RegisteredNamespace {
   schema: (value?: unknown) => unknown
   base: unknown
   section: () => PublishedSection | undefined
+  /** 真实 settings 服务把已提交的变更推给注册者；这里用同一条路径驱动技能开关。 */
+  update: (patch: object) => Promise<void>
 }
 
 function endpointOf(input: unknown): string {
@@ -101,6 +137,8 @@ function createFakeContext() {
   const stored: Record<string, unknown> = {}
   const credentials = new Map<string, string>()
   const namespaces: Record<string, RegisteredNamespace> = {}
+  /** 每个命名空间的观察者：注册者用 watch 订阅（技能开关的即时生效走这条路径）。 */
+  const watchers: Record<string, ((next: unknown, prev: unknown) => void | Promise<void>)[]> = {}
 
   const settings = {
     async update(ns: string, patch: object) {
@@ -110,15 +148,34 @@ function createFakeContext() {
       return stored[ns]
     },
     register(ns: string, schema: (value?: unknown) => unknown, options?: { base?: unknown }) {
-      namespaces[ns] = { schema, base: options?.base, section: () => stored[ns] as PublishedSection }
+      const commit = (section: object): unknown => {
+        const prev = stored[ns]
+        const next = schema(section)
+        stored[ns] = next
+        for (const watcher of watchers[ns] ?? []) void watcher(next, prev)
+        return next
+      }
+      namespaces[ns] = {
+        schema,
+        base: options?.base,
+        section: () => stored[ns] as PublishedSection,
+        update: async (patch: object) => { commit({ ...(stored[ns] as object ?? {}), ...patch }) },
+      }
       return {
         async replace(section: object) {
-          stored[ns] = schema(section)
+          commit(section)
         },
         async update(patch: object) {
-          stored[ns] = schema({ ...(stored[ns] as object ?? {}), ...patch })
+          commit({ ...(stored[ns] as object ?? {}), ...patch })
         },
         get: () => stored[ns],
+        watch(callback: (next: unknown, prev: unknown) => void | Promise<void>) {
+          const list = (watchers[ns] ??= [])
+          list.push(callback)
+          return () => {
+            watchers[ns] = (watchers[ns] ?? []).filter(entry => entry !== callback)
+          }
+        },
       }
     },
   }
@@ -144,9 +201,9 @@ function createFakeContext() {
   return { ctx, namespaces }
 }
 
-async function waitFor<T>(probe: () => T | undefined, attempts = 200): Promise<T> {
+async function waitFor<T>(probe: () => T | undefined | Promise<T | undefined>, attempts = 200): Promise<T> {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const value = probe()
+    const value = await probe()
     if (value !== undefined) return value
     await new Promise((resolve) => { setTimeout(resolve, 20) })
   }
@@ -221,9 +278,11 @@ describe('enterprise plugin client bridges', () => {
       {
         id: 'general',
         label: '通用助手',
+        icon: '💡',
         actions: [
-          { id: 'docs', label: '文档处理', skill: 'doc-polish', prompt: '帮我整理并润色这份文档：' },
-          { id: 'minutes', label: '会议纪要', skill: '', prompt: '帮我把以下会议记录整理成纪要：' },
+          { id: 'docs', label: '文档处理', icon: '📄', skill: 'doc-polish', prompt: '帮我整理并润色这份文档：' },
+          // 没配图标的二级 tab 收敛成空串（客户端据此不渲染图标节点）
+          { id: 'minutes', label: '会议纪要', icon: '', skill: '', prompt: '帮我把以下会议记录整理成纪要：' },
         ],
       },
     ])
@@ -265,6 +324,25 @@ describe('enterprise plugin client bridges', () => {
       },
     ])
     expect(namespace.configRevision).toBe(7)
+  })
+
+  it('publishes the home examples with their images and drops unusable entries', async () => {
+    const { home, namespace, registered } = await startPlugin()
+    homes.push(home)
+
+    // 没有 id/名称/样例图的条目在 host 侧就被过滤掉：卡片点不出任何东西，
+    // 下发只会白白占据设置文档的体积（图片是 data URL，体积随图片线性走）。
+    expect(namespace.examples.map(example => example.id)).toEqual(['ex-1'])
+    const example = namespace.examples[0]
+    expect(example?.label).toBe('年度数据报告')
+    expect(example?.skill).toBe('doc-polish')
+    expect(example?.image.startsWith('data:image/png;base64,')).toBe(true)
+    expect(example?.artifacts).toEqual([{ label: '年度数据报告.html', note: '单文件' }])
+
+    // 样例是平台下发的内容，客户端只读：再走一轮同步（replace 整段用户层）时
+    // 必须原样保留——被清空的话用户会看到案例区莫名消失。
+    await registered.update({ lastSyncAt: new Date().toISOString() })
+    expect(namespace.examples.map(entry => entry.id)).toEqual(['ex-1'])
   })
 
   it('marks skills the sync actually wrote to disk as installed', async () => {
@@ -316,5 +394,99 @@ describe('enterprise plugin client bridges', () => {
       .not.toContain('/api/v1/client/skills/doc-polish')
     expect(existsSync(join(home, 'skills'))).toBe(false)
     expect(existsSync(join(home, 'enterprise-skills.json'))).toBe(false)
+  })
+})
+
+/**
+ * 「技能广场」开关的实际效果：关闭某个技能后，对应技能文件的
+ * `disable-model-invocation` 必须被写上（模型不再自动调用它），
+ * 而技能目录与正文原样保留（用户手打 `/技能名` 仍要能显式调用）。
+ */
+describe('enterprise skill activation switch', () => {
+  const homes: string[] = []
+
+  beforeEach(() => {
+    homes.length = 0
+  })
+
+  afterEach(async () => {
+    vi.unstubAllGlobals()
+    await Promise.all(homes.map(path => rm(path, { recursive: true, force: true })))
+  })
+
+  /**
+   * 起一轮带技能下发的同步并等它完成。
+   *
+   * `DSH_HOME` 由 `startPlugin` 自己开临时目录，所以这里必须读**它**设的那个值——
+   * 测试自己 `mkdtemp` 出来的目录跟插件写技能的位置不是同一个。
+   *
+   * @returns 本轮的 home 目录与已注册的设置命名空间。
+   */
+  async function startWithSkills(): Promise<{ home: string; registered: RegisteredNamespace }> {
+    const { registered } = await startPlugin({ syncSkills: true })
+    const home = process.env.DSH_HOME as string
+    await waitFor(() => (existsSync(join(home, 'enterprise-skills.json')) ? true : undefined))
+    return { home, registered }
+  }
+
+  it('writes the model-invocation opt-out when a skill is switched off, and removes it on', async () => {
+    const { home, registered } = await startWithSkills()
+    homes.push(home)
+    const file = join(home, 'skills', 'doc-polish', 'SKILL.md')
+
+    // 初始：技能照常进模型可见目录
+    expect(await readFile(file, 'utf8')).not.toContain('disable-model-invocation')
+
+    await registered.update({ disabledSkills: ['doc-polish'] })
+    const off = await waitFor(async () => {
+      const content = await readFile(file, 'utf8')
+      return content.includes('disable-model-invocation: true') ? content : undefined
+    })
+    // 只加一行键：正文与其它 frontmatter 字段原样保留
+    expect(off).toContain('name: doc-polish')
+    expect(off).toContain('正文说明。')
+    expect(off.split('\n').filter(line => line.includes('disable-model-invocation'))).toHaveLength(1)
+
+    await registered.update({ disabledSkills: [] })
+    const on = await waitFor(async () => {
+      const content = await readFile(file, 'utf8')
+      return content.includes('disable-model-invocation') ? undefined : content
+    })
+    expect(on).toContain('description: 整理并润色中文文档')
+  })
+
+  it('keeps the user switch across a cloud sync that rewrites the section', async () => {
+    const { home, registered } = await startWithSkills()
+    homes.push(home)
+
+    await registered.update({ disabledSkills: ['meeting-minutes'] })
+    await waitFor(async () => {
+      const content = await readFile(join(home, 'skills', 'meeting-minutes', 'SKILL.md'), 'utf8')
+      return content.includes('disable-model-invocation: true') ? content : undefined
+    })
+
+    // 云端每轮同步都会 replace 整个用户层：开关必须被 publishSession 原样带回。
+    // 漏掉这一步，用户每关一个技能都会在下一次同步（默认 60s）被悄悄打开。
+    await registered.update({ lastSyncAt: new Date().toISOString() })
+    expect(registered.section()?.disabledSkills).toEqual(['meeting-minutes'])
+    expect(await readFile(join(home, 'skills', 'meeting-minutes', 'SKILL.md'), 'utf8'))
+      .toContain('disable-model-invocation: true')
+    // 没被关的技能不受影响
+    expect(await readFile(join(home, 'skills', 'doc-polish', 'SKILL.md'), 'utf8'))
+      .not.toContain('disable-model-invocation')
+  })
+
+  it('ignores malformed skill names and missing local skill files', async () => {
+    const { home, registered } = await startWithSkills()
+    homes.push(home)
+
+    // 不合法技能名 + 本机没有的技能：都不该让开关流程抛错或写出越界路径
+    await registered.update({ disabledSkills: ['Bad_Name', 'not-delivered'] })
+    expect(registered.section()?.disabledSkills).toEqual(['Bad_Name', 'not-delivered'])
+    expect(existsSync(join(home, 'skills', 'Bad_Name'))).toBe(false)
+    expect(existsSync(join(home, 'skills', 'not-delivered'))).toBe(false)
+    // 已下发的技能不在关闭清单里，保持可被模型调用
+    expect(await readFile(join(home, 'skills', 'doc-polish', 'SKILL.md'), 'utf8'))
+      .not.toContain('disable-model-invocation')
   })
 })

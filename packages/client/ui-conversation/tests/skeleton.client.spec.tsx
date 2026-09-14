@@ -329,6 +329,8 @@ describe('Hero chrome', () => {
     const renderSlot = vi.fn<HeroShellProps['renderSlot']>(() => null)
     const view = render(<HeroShell t={makeTranslate(en, commonEn)} renderSlot={renderSlot} />)
     expect(view.getByText("维小智, I'm here to help")).toBeTruthy()
+    // Hero chrome itself stages only the module catalog; the example gallery is
+    // rendered by ConversationRoot below the composer card, not from here.
     expect(renderSlot).toHaveBeenCalledOnce()
     expect(renderSlot.mock.calls[0]?.[0]).toBe('conversation.hero.catalog')
     expect(renderSlot.mock.calls[0]?.[1]).toEqual({})

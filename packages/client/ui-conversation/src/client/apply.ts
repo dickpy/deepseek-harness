@@ -252,6 +252,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
       'conversation.hero.agentPreset': { kind: 'single', scope: 'root' },
       'conversation.hero.catalog': { kind: 'single', scope: 'session-maybe' },
+      'conversation.hero.gallery': { kind: 'single', scope: 'session-maybe' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
       hooks: {

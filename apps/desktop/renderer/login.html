@@ -11,12 +11,10 @@
     <main class="card" id="card">
       <span class="badge" id="internal-badge" hidden></span>
 
-      <header class="brand">
-        <span class="brand-mark" id="brand-mark" aria-hidden="true"></span>
-        <span class="brand-name" id="brand-name"></span>
+      <header class="heading-row">
+        <img class="heading-logo" src="logo.png" alt="" aria-hidden="true">
+        <h1 id="heading"></h1>
       </header>
-
-      <h1 id="heading"></h1>
       <p id="description"></p>
 
       <form id="form" autocomplete="on">
@@ -55,7 +53,10 @@
         <p id="error" role="alert" hidden></p>
 
         <button id="submit" class="submit" type="submit">
-          <span class="spinner" id="spinner" aria-hidden="true"></span>
+          <!-- 待机时左侧显示品牌 logo（提交中换成转圈的 spinner，并在成功文案时保持隐藏）
+               两者都是按钮的兄弟节点，靠 CSS 控制显隐，不动按钮宽度。 -->
+          <span class="spinner" id="spinner" aria-hidden="true" hidden></span>
+          <img class="submit-logo" id="submit-logo" src="logo.png" alt="" aria-hidden="true">
           <span id="submit-label"></span>
         </button>
       </form>

@@ -73,7 +73,8 @@ export interface HeroShellProps {
 /**
  * Render the hero chrome: a bold centered greeting, then the enterprise
  * module catalog slot (大类 tab + 技能 chips, WorkBuddy style). The composer
- * itself stays mounted outside this component.
+ * itself stays mounted outside this component, and the example gallery is
+ * rendered by {@link ConversationRoot} *below* that composer card.
  * @param props - see {@link HeroShellProps}.
  * @returns the centered hero element tree.
  */

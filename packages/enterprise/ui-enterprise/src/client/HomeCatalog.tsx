@@ -61,6 +61,10 @@ export function HomeCatalog(props: HomeCatalogProps): ReactNode {
             data-active={category.id === active.id}
             onClick={() => { setActiveId(category.id) }}
           >
+            {/* 图标由管理台配置（emoji / 单个字形）；没配就只显示文字 */}
+            {category.icon !== undefined && (
+              <span className={css.tabIcon} aria-hidden="true">{category.icon}</span>
+            )}
             {category.label}
           </button>
         ))}
@@ -76,6 +80,9 @@ export function HomeCatalog(props: HomeCatalogProps): ReactNode {
             title={actionDraft(action)}
             onClick={() => { pick(action) }}
           >
+            {action.icon !== undefined && (
+              <span className={css.skillIcon} aria-hidden="true">{action.icon}</span>
+            )}
             {action.label}
           </button>
         ))}
