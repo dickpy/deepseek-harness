@@ -61,6 +61,13 @@ const MIME: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml',
+  // fork: 登录页的页头与登录按钮都要显示品牌 logo（renderer/logo.png）。
+  // 缺了这一条时 serveShellAsset 会回 octet-stream，Chromium 在 CSP 下拒绝
+  // 把它渲染成图片，页面只会看到一个坏图标。
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
 }
 
 interface RuntimeResources {
