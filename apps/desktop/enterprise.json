@@ -3,6 +3,6 @@
   "default": "test",
   "environments": [
     { "key": "test", "label": "测试", "url": "http://localhost:8080/api/v1" },
-    { "key": "production", "label": "生产", "url": "http://localhost:8080/api/v1" }
+    { "key": "production", "label": "生产", "url": "http://10.16.53.51:20411/api/v1" }
   ]
 }

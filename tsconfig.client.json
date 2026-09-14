@@ -85,6 +85,11 @@
     { "path": "./packages/client/ui-reference" },
     { "path": "./packages/client/ui-subagent" },
     { "path": "./packages/experimental/client-ui-agent-team" },
+    // Client plugin outside packages/client (enterprise surface). It belongs to
+    // this aggregate, not the host one: the host pass must stay free of
+    // Client-face projects, whose `/remote` declarations the Host tsdown pass
+    // generates only afterwards.
+    { "path": "./packages/enterprise/ui-enterprise" },
     { "path": "./packages/client/ui-dockkit" },
     { "path": "./packages/client/ui-sidebar-right" },
     { "path": "./packages/client/ui-sidebar-documentpreview" },
