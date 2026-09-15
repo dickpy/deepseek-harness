@@ -2,6 +2,7 @@
 
 import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { availableParallelism } from 'node:os'
 import { parseArgs } from 'node:util'
 import { join, resolve } from 'node:path'
 import {
@@ -27,6 +28,10 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
   'DOWNLOAD_PROD_COS_SECRET_ID',
   'DOWNLOAD_PROD_COS_SECRET_KEY',
 ])
+/** Overrides how many release tarballs pack at once; see `desktopPackConcurrency`. */
+const DESKTOP_PACK_CONCURRENCY_ENV = 'DSH_DESKTOP_PACK_CONCURRENCY'
+/** Upper bound for the derived worker count so packing cannot starve the build host. */
+const DESKTOP_PACK_CONCURRENCY_LIMIT = 8
 
 /** Fixed platform and architecture identifiers exposed by package scripts. */
 export type DesktopPackageTargetName = 'mac-arm64' | 'mac-x64' | 'win-x64'
@@ -247,6 +252,28 @@ export function desktopElectronBuilderArguments(
   ]
 }
 
+/**
+ * Resolve how many release tarballs pack at once.
+ *
+ * `release:pack` defaults to one worker because the credentialed publish
+ * workflows require a serial prefix. Desktop packaging packs the whole family
+ * only to consume it locally, and every member writes its own tarball, so the
+ * members parallelize without changing what any tarball contains.
+ * @param env - Packaging environment.
+ * @returns Worker count from 1 through the host-derived limit.
+ */
+function desktopPackConcurrency(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env[DESKTOP_PACK_CONCURRENCY_ENV]?.trim()
+  if (raw !== undefined && raw !== '') {
+    const parsed = Number(raw)
+    if (!Number.isSafeInteger(parsed) || parsed < 1) {
+      throw new Error(`desktop package: ${DESKTOP_PACK_CONCURRENCY_ENV} must be a positive integer`)
+    }
+    return parsed
+  }
+  return Math.max(1, Math.min(DESKTOP_PACK_CONCURRENCY_LIMIT, availableParallelism()))
+}
+
 function runPnpm(
   args: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
@@ -310,8 +337,13 @@ async function main(): Promise<void> {
   for (const name of WINDOWS_SIGNING_ENV_NAMES) {
     if (!invocation.unsigned && process.env[name] !== undefined) electronBuilderEnv[name] = process.env[name]
   }
+  const packConcurrency = desktopPackConcurrency()
   await runPnpm(['run', 'build:official'], buildEnv, REPOSITORY_ROOT)
-  await runPnpm(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
+  await runPnpm([
+    'run', 'release:pack', '--family', 'dsh',
+    '--out', buildPaths.packedDsh,
+    '--concurrency', String(packConcurrency),
+  ], buildEnv, REPOSITORY_ROOT)
   await runPnpm([
     '--dir',
     'apps/desktop-host',
@@ -319,7 +351,11 @@ async function main(): Promise<void> {
     '--pack-destination',
     buildPaths.packedDsh,
   ], buildEnv, REPOSITORY_ROOT)
-  await runPnpm(['run', 'release:pack', '--family', 'vendor', '--out', buildPaths.packedVendor], buildEnv, REPOSITORY_ROOT)
+  await runPnpm([
+    'run', 'release:pack', '--family', 'vendor',
+    '--out', buildPaths.packedVendor,
+    '--concurrency', String(packConcurrency),
+  ], buildEnv, REPOSITORY_ROOT)
   rmSync(buildPaths.packedLandlock, { recursive: true, force: true })
   mkdirSync(buildPaths.packedLandlock, { recursive: true })
   await runPnpm(['--dir', 'native/system', 'run', 'build:ts'], buildEnv, REPOSITORY_ROOT)

@@ -8,6 +8,10 @@ export interface DesktopTargetBuildPaths {
   readonly packageSet: string
   readonly dsh: string
   readonly dshPnpm: string
+  /** Reused across builds, and kept on the build volume so pnpm can hardlink. */
+  readonly dshPnpmStore: string
+  /** Working directory for runtime materialization; must share the store's volume. */
+  readonly dshRuntimeBuild: string
   readonly nodeExtract: string
   readonly packedDsh: string
   readonly packedVendor: string

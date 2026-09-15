@@ -1,8 +1,7 @@
 /** Materialize the complete production runtime before publishing Desktop resources. */
 
 import { spawn, execFile } from 'node:child_process'
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { copyFileSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join, relative, resolve } from 'node:path'
 import { createRuntimeProjectMetadata } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
@@ -30,8 +29,12 @@ import { desktopRuntimeFileExclusion } from './runtime-file-policy.ts'
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()
 const DSH_OUTPUT_ROOT = BUILD_PATHS.dsh
-const BUILD_ROOT = mkdtempSync(join(tmpdir(), 'dsh-desktop-runtime-'))
-const STORE_ROOT = join(BUILD_ROOT, 'store')
+// fork: 工作目录与 store 都必须位于构建根所在磁盘。
+// store 原先在系统临时目录里、每次构建重新下载全部依赖（实测 258 个包 / 2m41s）；
+// 但它与临时目录分属不同盘时 pnpm 无法硬链接，只能逐文件复制。
+// 两者同置于目标构建目录下即可同时获得「下载复用」与「硬链接物化」。
+const BUILD_ROOT = BUILD_PATHS.dshRuntimeBuild
+const STORE_ROOT = BUILD_PATHS.dshPnpmStore
 const RUNTIME_ROOT = BUILD_PATHS.runtime
 const PNPM_BUILD_STATE = BUILD_PATHS.dshPnpm
 const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
@@ -42,6 +45,56 @@ function manifestVersion(path: string, subject: string): string {
   const manifest = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
   if (typeof manifest.version !== 'string') throw new Error(`desktop runtime: ${subject} has no version`)
   return manifest.version
+}
+
+/**
+ * Hardlinking is skipped on macOS: signing rewrites the materialized runtime in
+ * place afterwards, which would mutate the shared pnpm store copy through the link.
+ */
+const MATERIALIZE_LINKS = process.platform !== 'darwin'
+
+/**
+ * Materialize installed modules into the runtime tree.
+ *
+ * The tree is roughly eleven thousand files. On Windows a byte copy costs
+ * minutes because every write passes the filesystem filter drivers, while
+ * linking the same bytes is metadata-only. Names, contents, and the resulting
+ * file set are identical either way, so the runtime descriptor and its
+ * integrity check describe the same tree; anything the filesystem refuses to
+ * link falls back to a copy.
+ * @param source - Installed `node_modules`.
+ * @param destination - Runtime-tree `node_modules`.
+ * @param include - Whether one source path belongs in the runtime tree.
+ */
+function materializeModules(
+  source: string,
+  destination: string,
+  include: (source: string) => boolean,
+): void {
+  if (!include(source)) return
+  const entry = lstatSync(source)
+  if (entry.isSymbolicLink()) {
+    // The previous copy dereferenced links, so follow one to the same result.
+    materializeModules(realpathSync.native(source), destination, include)
+    return
+  }
+  if (entry.isDirectory()) {
+    mkdirSync(destination, { recursive: true })
+    for (const name of readdirSync(source)) {
+      materializeModules(join(source, name), join(destination, name), include)
+    }
+    return
+  }
+  mkdirSync(dirname(destination), { recursive: true })
+  if (MATERIALIZE_LINKS) {
+    try {
+      linkSync(source, destination)
+      return
+    } catch {
+      // Fall through to the copy path below.
+    }
+  }
+  copyFileSync(source, destination)
 }
 
 function desktopRelease(): DesktopRelease {
@@ -102,6 +155,9 @@ function runPnpm(args: readonly string[]): Promise<void> {
 async function main(): Promise<void> {
   rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
   rmSync(PNPM_BUILD_STATE, { recursive: true, force: true })
+  // 固定路径而非 mkdtemp：必须与 store 同盘才能硬链接，且每次重建以丢弃上一轮残留。
+  rmSync(BUILD_ROOT, { recursive: true, force: true })
+  mkdirSync(BUILD_ROOT, { recursive: true })
   mkdirSync(STORE_ROOT, { recursive: true })
   try {
     const release = desktopRelease()
@@ -119,10 +175,11 @@ async function main(): Promise<void> {
     const target = { platform: process.platform, arch: targetName.endsWith('arm64') ? 'arm64' : 'x64' }
     const modules = join(BUILD_ROOT, 'node_modules')
     mkdirSync(DSH_OUTPUT_ROOT, { recursive: true })
-    cpSync(modules, join(DSH_OUTPUT_ROOT, 'node_modules'), {
-      recursive: true, dereference: true,
-      filter: source => desktopRuntimeFileExclusion(relative(modules, source), target) === undefined,
-    })
+    materializeModules(
+      modules,
+      join(DSH_OUTPUT_ROOT, 'node_modules'),
+      source => desktopRuntimeFileExclusion(relative(modules, source), target) === undefined,
+    )
     writeFileSync(join(DSH_OUTPUT_ROOT, 'package.json'), `${JSON.stringify({
       name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: release.version, type: 'module',
       dependencies: Object.fromEntries(packageSet.packages.map(entry => [entry.name, entry.version])),
@@ -150,6 +207,7 @@ async function main(): Promise<void> {
     rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
     throw error
   } finally {
+    // 清工作目录与 pnpm 状态；STORE_ROOT 刻意保留，它是跨构建复用的下载缓存。
     rmSync(BUILD_ROOT, { recursive: true, force: true })
     rmSync(PNPM_BUILD_STATE, { recursive: true, force: true })
   }
