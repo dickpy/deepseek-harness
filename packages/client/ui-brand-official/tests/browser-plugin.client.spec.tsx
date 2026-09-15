@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply, inject } from '../src/client/index.ts'
 import { OfficialBrandMark, OfficialBrandName } from '../src/client/Brand.tsx'
@@ -10,6 +10,7 @@ import { apply as hostApply } from '../src/index.ts'
 afterEach(() => {
   cleanup()
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
 })
 
 const HOLES = [
@@ -87,5 +88,27 @@ describe('official browser-brand plugin', () => {
     expect(mark.container.querySelector('img')?.getAttribute('width')).toBe('34')
     mark.rerender(<OfficialBrandMark size={24} />)
     expect(mark.container.querySelector('img')?.getAttribute('width')).toBe('24')
+  })
+
+  it('shows the desktop product version beside the name when the shell answers', async () => {
+    const appVersion = vi.fn(async () => '0.0.1')
+    vi.stubGlobal('dshDesktop', { appVersion })
+    const name = render(<OfficialBrandName />)
+    expect(appVersion).toHaveBeenCalledTimes(1)
+    await waitFor(() => { expect(name.container.textContent).toBe('维小智0.0.1') })
+    name.unmount()
+  })
+
+  it('renders the name alone in the browser build, which has no shell to ask', () => {
+    const name = render(<OfficialBrandName />)
+    expect(name.container.textContent).toBe('维小智')
+    name.unmount()
+  })
+
+  it('keeps the name when the shell cannot report a version', async () => {
+    vi.stubGlobal('dshDesktop', { appVersion: async () => { throw new Error('no version') } })
+    const name = render(<OfficialBrandName />)
+    await waitFor(() => { expect(name.container.textContent).toBe('维小智') })
+    name.unmount()
   })
 })

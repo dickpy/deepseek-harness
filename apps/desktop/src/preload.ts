@@ -6,6 +6,7 @@ import type { DesktopBackendState } from './backend-controller.ts'
 
 const api: DshDesktopApi = {
   protocolVersion: 1,
+  appVersion: () => ipcRenderer.invoke(DESKTOP_IPC.versionGet) as Promise<string>,
   locale: () => ipcRenderer.invoke(DESKTOP_IPC.localeGet) as Promise<ReturnType<DshDesktopApi['locale']> extends Promise<infer T> ? T : never>,
   plugins: {
     list: () => ipcRenderer.invoke(DESKTOP_IPC.pluginsList) as Promise<ReturnType<DshDesktopApi['plugins']['list']> extends Promise<infer T> ? T : never>,

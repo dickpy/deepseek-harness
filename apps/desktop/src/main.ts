@@ -229,6 +229,14 @@ async function main(): Promise<void> {
     return locale
   })
 
+  // 产品版本：登录页（shell）与侧栏品牌（app）都要显示它。
+  // `app.getVersion()` 读的是打包清单里的 apps/desktop/package.json 版本，
+  // 也就是自动更新比较的那个号；内置 dsh 版本是另一回事，见 apps/desktop/src/release.ts。
+  ipcMain.handle(DESKTOP_IPC.versionGet, (event) => {
+    assertDesktopSender(event, ['shell', 'app'])
+    return app.getVersion()
+  })
+
   // fork: 退出登录/切换账号 —— 应用文档（dsh-app://app）经 preload 调用；
   // 清掉本机会话后整应用重启，门禁自然落回登录窗。switch 连邮箱预填一起清。
   ipcMain.handle('dsh-desktop:enterprise-logout', (event, payload: unknown) => {

@@ -22,6 +22,7 @@ function startup(locale = 'en', status: Promise<DesktopBackendState> = Promise.r
   const queried = Promise.withResolvers<undefined>()
   const api: DshDesktopStartupApi = {
     protocolVersion: 1,
+    appVersion: async () => '0.0.1',
     locale: async () => resolveDesktopLocale(locale),
     backend: {
       status: () => { queried.resolve(undefined); return status },

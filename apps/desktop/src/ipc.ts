@@ -7,6 +7,7 @@ import type { DesktopBackendState } from './backend-controller.ts'
 /** IPC channel names kept private to the desktop application bundle. */
 export const DESKTOP_IPC = {
   localeGet: 'dsh-desktop:locale-get',
+  versionGet: 'dsh-desktop:version-get',
   pluginsList: 'dsh-desktop:plugins-list',
   pluginsAdd: 'dsh-desktop:plugins-add',
   pluginsRemove: 'dsh-desktop:plugins-remove',
@@ -30,8 +31,21 @@ export interface DesktopUpdateState {
   readonly message?: string
 }
 
+/** 应用身份访问器：壳拥有的每个 `dsh-app://` 文档都可以读取。 */
+export interface DshDesktopVersionApi {
+  /**
+   * 运行中的桌面产品版本。
+   *
+   * 取的是 `apps/desktop/package.json` 的版本（Electron 的 `app.getVersion()`），
+   * 也就是自动更新用来比较的那个版本号；不是内置 dsh 运行时的版本。
+   * 界面用它回答「用户装在哪个发布上」。
+   * @returns 产品版本，例如 `0.0.1`。
+   */
+  appVersion(): Promise<string>
+}
+
 /** Narrow bridge exposed through context isolation. */
-export interface DshDesktopApi {
+export interface DshDesktopApi extends DshDesktopVersionApi {
   readonly protocolVersion: 1
   locale(): Promise<DesktopLocale>
   readonly plugins: {
@@ -55,9 +69,18 @@ export interface DshDesktopApi {
 }
 
 /** Startup-page controls, unavailable to backend-provided application documents. */
-export interface DshDesktopStartupApi extends Pick<DshDesktopApi, 'protocolVersion' | 'locale'> {
+export interface DshDesktopStartupApi extends DshDesktopVersionApi, Pick<DshDesktopApi, 'protocolVersion' | 'locale'> {
   readonly backend: Omit<DshDesktopApi['backend'], 'retry'>
   disablePlugins(): Promise<void>
   restart(): Promise<void>
   resetConfiguration(): Promise<void>
+}
+
+/**
+ * 后端提供的应用文档（`dsh-app://app`）可用的最小接口。
+ * 只有载体标记、版本号与退出登录——没有插件管理、重启或配置重置。
+ */
+export interface DshDesktopAppApi extends DshDesktopVersionApi {
+  readonly protocolVersion: 1
+  enterpriseLogout(mode: 'logout' | 'switch'): Promise<void>
 }
