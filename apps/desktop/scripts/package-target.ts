@@ -120,18 +120,19 @@ function writeReleaseRecord(
   environment: NodeJS.ProcessEnv,
   artifactsRoot: string,
 ): void {
+  // fork: 产品版本与 dsh 运行时版本已解耦，两者不再要求相等。
+  // 记录同时保留二者：version 标识这次发布（决定产物名与频道路径），
+  // dshVersion 保留「这一版绑定哪个 dsh」的既有保证。
   const desktopVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
   const dshVersion = packageVersion(join(REPOSITORY_ROOT, 'package.json'), 'dsh package')
-  if (desktopVersion !== dshVersion) {
-    throw new Error(`desktop package: desktop version ${desktopVersion} does not match dsh version ${dshVersion}`)
-  }
   const update = resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
   const recordPath = join(artifactsRoot, desktopBuildRecordFilename(target.name))
   const temporaryPath = `${recordPath}.tmp`
   writeFileSync(temporaryPath, `${JSON.stringify({
     schemaVersion: 1,
     target: target.name,
-    version: dshVersion,
+    version: desktopVersion,
+    dshVersion,
     environment: update.environment,
     publicUrl: update.publicUrl,
   }, null, 2)}\n`)

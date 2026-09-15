@@ -34,6 +34,25 @@ const UPDATE_ENVIRONMENTS = {
 const UPDATE_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64'])
 
 /**
+ * 维小智发布产物的文件名前缀。
+ * electron-builder 用它派生安装包、ZIP、DMG 及其 blockmap 的名字，
+ * 更新元数据里的 `files[].url` 也指向同一批名字，所以这里必须与
+ * `electron-builder.config.mjs` 的 `artifactName` 保持一致。
+ */
+export const DESKTOP_ARTIFACT_PREFIX = 'vtl-xiaozhi'
+
+/**
+ * Return the electron-builder artifact base name for one release target.
+ * @param {string} version - Desktop semantic version.
+ * @param {string} os - Target operating system segment (`mac` or `win`).
+ * @param {string} arch - Target architecture segment.
+ * @returns {string} Artifact base name without its extension.
+ */
+export function desktopArtifactBasename(version, os, arch) {
+  return `${DESKTOP_ARTIFACT_PREFIX}-${version}-${os}-${arch}`
+}
+
+/**
  * Resolve the update deployment, defaulting local release work to test.
  * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
  * @returns {'test' | 'production'} Validated deployment name.

@@ -4,13 +4,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createDesktopUploadPlan } from '../scripts/desktop-upload-plan.ts'
-import { desktopUpdateMetadataFilename } from '../scripts/desktop-auto-update-environment.mjs'
+import {
+  desktopArtifactBasename,
+  desktopUpdateMetadataFilename,
+} from '../scripts/desktop-auto-update-environment.mjs'
 import type { DesktopPackageTargetName } from '../scripts/package-target.ts'
 
 const temporaryDirectories: string[] = []
 const TEST_ORIGIN = 'https://desktop-updates.example.com'
 const TEST_BUCKET = 'test-download-bucket'
 const PRODUCTION_BUCKET = 'production-download-bucket'
+/** Bundled dsh runtime version; deliberately different from the desktop version. */
+const DSH_VERSION = '9.9.9'
 
 interface Fixture {
   readonly repositoryRoot: string
@@ -34,11 +39,12 @@ async function fixture(
   const appRoot = join(repositoryRoot, 'apps', 'desktop')
   const artifactsRoot = join(appRoot, '.desktop-build', 'artifacts')
   await mkdir(artifactsRoot, { recursive: true })
-  await writeFile(join(repositoryRoot, 'package.json'), `${JSON.stringify({ version })}\n`)
+  // fork: 产品版本与 dsh 版本已解耦，夹具必须让二者取不同值，否则无法覆盖解耦行为。
+  await writeFile(join(repositoryRoot, 'package.json'), `${JSON.stringify({ version: DSH_VERSION })}\n`)
   await writeFile(join(appRoot, 'package.json'), `${JSON.stringify({ version })}\n`)
 
   const [os, arch] = target.split('-') as ['mac' | 'win', 'arm64' | 'x64']
-  const base = `deepseek-harness-${version}-${os}-${arch}`
+  const base = desktopArtifactBasename(version, os, arch)
   const origin = environment === 'test'
     ? TEST_ORIGIN
     : 'https://download.deepseek.com'
@@ -46,6 +52,7 @@ async function fixture(
     schemaVersion: 1,
     target,
     version,
+    dshVersion: DSH_VERSION,
     environment,
     publicUrl: `${origin}/_/harness/desktop/stable/${target}/`,
   })}\n`)
@@ -108,9 +115,9 @@ describe('desktop upload plan', () => {
       bucket: TEST_BUCKET,
     })
     expect(plan.artifacts.map(artifact => artifact.filename)).toEqual([
-      'deepseek-harness-1.2.3-mac-arm64.dmg',
-      'deepseek-harness-1.2.3-mac-arm64.zip',
-      'deepseek-harness-1.2.3-mac-arm64.zip.blockmap',
+      'vtl-xiaozhi-1.2.3-mac-arm64.dmg',
+      'vtl-xiaozhi-1.2.3-mac-arm64.zip',
+      'vtl-xiaozhi-1.2.3-mac-arm64.zip.blockmap',
       'latest-mac.yml',
     ])
     expect(plan.artifacts.at(-1)).toMatchObject({
@@ -123,9 +130,9 @@ describe('desktop upload plan', () => {
     const paths = await fixture('mac-arm64', '1.2.3-alpha.4')
     const plan = await createDesktopUploadPlan('mac-arm64', paths)
     expect(plan.artifacts.map(artifact => artifact.filename)).toEqual([
-      'deepseek-harness-1.2.3-alpha.4-mac-arm64.dmg',
-      'deepseek-harness-1.2.3-alpha.4-mac-arm64.zip',
-      'deepseek-harness-1.2.3-alpha.4-mac-arm64.zip.blockmap',
+      'vtl-xiaozhi-1.2.3-alpha.4-mac-arm64.dmg',
+      'vtl-xiaozhi-1.2.3-alpha.4-mac-arm64.zip',
+      'vtl-xiaozhi-1.2.3-alpha.4-mac-arm64.zip.blockmap',
       'alpha-mac.yml',
     ])
   })
@@ -134,7 +141,7 @@ describe('desktop upload plan', () => {
     const paths = await fixture('win-x64', '2.0.0', 'production')
     const plan = await createDesktopUploadPlan('win-x64', paths)
     expect(plan.artifacts.map(artifact => artifact.filename)).toEqual([
-      'deepseek-harness-2.0.0-win-x64.exe',
+      'vtl-xiaozhi-2.0.0-win-x64.exe',
       'latest.yml',
     ])
     expect(plan).toMatchObject({
@@ -149,7 +156,7 @@ describe('desktop upload plan', () => {
     await writeFile(join(paths.artifactsRoot, 'latest.yml'), `${JSON.stringify({
       version: '1.2.3',
       files: [{
-        url: 'deepseek-harness-1.2.3-win-x64.exe',
+        url: 'vtl-xiaozhi-1.2.3-win-x64.exe',
         size: Buffer.byteLength(executable),
         sha512: digest(executable),
       }],
@@ -157,11 +164,15 @@ describe('desktop upload plan', () => {
     await expect(createDesktopUploadPlan('win-x64', paths)).rejects.toThrow(/blockMapSize/u)
   })
 
-  it('rejects a completed build from another dsh version or deployment', async () => {
+  it('rejects a completed build from another desktop version, dsh version, or deployment', async () => {
     const paths = await fixture('mac-x64')
-    await writeFile(join(paths.repositoryRoot, 'package.json'), '{"version":"1.2.4"}\n')
     await writeFile(join(paths.appRoot, 'package.json'), '{"version":"1.2.4"}\n')
     await expect(createDesktopUploadPlan('mac-x64', paths)).rejects.toThrow(/completion record.*1\.2\.4/u)
+
+    // 产品版本不变但绑定的 dsh 版本变了，仍必须拒绝：更新载荷属于另一个运行时。
+    const otherDsh = await fixture('mac-x64')
+    await writeFile(join(otherDsh.repositoryRoot, 'package.json'), '{"version":"9.9.8"}\n')
+    await expect(createDesktopUploadPlan('mac-x64', otherDsh)).rejects.toThrow(/completion record.*9\.9\.8/u)
 
     const productionPaths = await fixture('mac-x64', '1.2.3', 'production')
     await expect(createDesktopUploadPlan('mac-x64', {
@@ -177,7 +188,7 @@ describe('desktop upload plan', () => {
   it('rejects stale architecture metadata and modified updater bytes', async () => {
     const paths = await fixture('mac-arm64')
     const metadataPath = join(paths.artifactsRoot, 'latest-mac.yml')
-    const zipPath = join(paths.artifactsRoot, 'deepseek-harness-1.2.3-mac-arm64.zip')
+    const zipPath = join(paths.artifactsRoot, 'vtl-xiaozhi-1.2.3-mac-arm64.zip')
     await writeFile(zipPath, 'modified')
     await expect(createDesktopUploadPlan('mac-arm64', paths)).rejects.toThrow(/size.*metadata/u)
 
@@ -185,7 +196,7 @@ describe('desktop upload plan', () => {
     await writeFile(metadataPath, `${JSON.stringify({
       version: '1.2.3',
       files: [{
-        url: 'deepseek-harness-1.2.3-mac-x64.zip',
+        url: 'vtl-xiaozhi-1.2.3-mac-x64.zip',
         size: Buffer.byteLength(x64),
         sha512: digest(x64),
       }],

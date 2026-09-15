@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -12,7 +12,7 @@ import {
   createWindowsTokenSigner,
   installWindowsNsisBootstrapSigner,
 } from './scripts/windows-sign.mjs'
-import { resolveDesktopAutoUpdateConfig } from './scripts/desktop-auto-update-environment.mjs'
+import { DESKTOP_ARTIFACT_PREFIX, resolveDesktopAutoUpdateConfig } from './scripts/desktop-auto-update-environment.mjs'
 import { desktopTargetBuildPaths, resolveDesktopBuildTarget } from './scripts/desktop-build-paths.mjs'
 
 /**
@@ -58,10 +58,17 @@ export function createElectronBuilderConfig(
     ? undefined
     : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
   const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
+  // fork: 桌面产品版本（appInfo.version，决定安装包名与更新版本）与内置 dsh 运行时版本已解耦；
+  // 运行时描述符与 package set 记录的始终是 dsh 版本，所以这些 hook 必须读仓库根清单。
+  const runtimeVersion = JSON.parse(
+    readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),
+  ).version
   return {
     appId,
     productName: '维小智',
-    artifactName: 'deepseek-harness-${version}-${os}-${arch}.${ext}',
+    // `artifactName` 是 electron-builder 的模板：单引号里的 `${...}` 保持字面量，
+    // 由 builder 自己替换。前缀与 desktopArtifactBasename() 共用同一个常量。
+    artifactName: DESKTOP_ARTIFACT_PREFIX + '-${version}-${os}-${arch}.${ext}',
     // fork: 免签名产物目录可用 DSH_DESKTOP_UNSIGNED_OUT_DIR 指到仓库外（避开工作区索引器的文件锁）
     directories: {
       output: unsigned
@@ -107,13 +114,13 @@ export function createElectronBuilderConfig(
     afterPack: async context => {
       const { verifyDesktopRuntime } = await import('./lib/types/runtime-tree.js')
       await verifyDesktopRuntime(join(context.packager.getResourcesDir(context.appOutDir), 'dsh'),
-        context.packager.appInfo.version, { platform: resolvedPlatform, arch: resolvedArch })
+        runtimeVersion, { platform: resolvedPlatform, arch: resolvedArch })
     },
     afterSign: async context => {
       if (context.electronPlatformName !== 'darwin') return
       const { verifyDesktopRuntime } = await import('./lib/types/runtime-tree.js')
       await verifyDesktopRuntime(join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources', 'dsh'),
-        context.packager.appInfo.version, { platform: 'darwin', arch: resolvedArch })
+        runtimeVersion, { platform: 'darwin', arch: resolvedArch })
       verifyMacOSSignatureAfterSign(context, macOSSigning ?? resolveMacOSSigningEnvironment(env))
     },
     artifactBuildCompleted: artifact => {

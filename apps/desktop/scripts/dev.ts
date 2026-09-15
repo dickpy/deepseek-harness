@@ -92,7 +92,9 @@ async function main(): Promise<void> {
   ]) {
     if (!existsSync(path)) throw new Error(`desktop development: missing built artifact ${path}`)
   }
-  const version = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
+  // fork: 产品版本与 dsh 运行时版本解耦。开发 profile 链接的是 workspace 里的
+  // @deepseek-ai/dsh 与 @deepseek-ai/dsh-desktop-host，其 release 身份必须是 dsh 版本。
+  const version = packageVersion(join(REPOSITORY_ROOT, 'package.json'), 'dsh package')
   const pnpmVersion = packageVersion(join(APP_ROOT, 'node_modules', 'pnpm', 'package.json'), 'pnpm package')
   const release: DesktopRelease = {
     schemaVersion: 1,

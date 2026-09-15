@@ -7,6 +7,7 @@ import { basename, join, resolve } from 'node:path'
 import { load } from 'js-yaml'
 import type { DesktopPackageTargetName } from './package-target.ts'
 import {
+  desktopArtifactBasename,
   desktopBuildRecordFilename,
   desktopUpdateMetadataFilename,
   resolveDesktopUploadConfig,
@@ -183,9 +184,8 @@ export async function createDesktopUploadPlan(
   const artifactsRoot = options.artifactsRoot ?? desktopTargetBuildPaths(targetName).artifacts
   const dshVersion = await manifestVersion(join(repositoryRoot, 'package.json'), 'dsh package')
   const desktopVersion = await manifestVersion(join(appRoot, 'package.json'), 'desktop package')
-  if (dshVersion !== desktopVersion) {
-    throw new Error(`desktop upload: desktop version ${desktopVersion} does not match current dsh version ${dshVersion}`)
-  }
+  // fork: 产品版本与 dsh 版本解耦。更新源上的产物名与频道元数据名都来自 electron-builder 的
+  // appInfo.version（产品版本）；dshVersion 只用于核对构建记录里绑定的那个运行时。
 
   const update = resolveDesktopUploadConfig(environment, target.platform, target.arch)
   const buildRecord = await jsonFile(
@@ -194,13 +194,14 @@ export async function createDesktopUploadPlan(
   )
   if (buildRecord.schemaVersion !== 1
     || buildRecord.target !== targetName
-    || buildRecord.version !== dshVersion
+    || buildRecord.version !== desktopVersion
+    || buildRecord.dshVersion !== dshVersion
     || buildRecord.environment !== update.environment
     || buildRecord.publicUrl !== update.publicUrl) {
-    throw new Error(`desktop upload: ${targetName} package completion record does not match dsh ${dshVersion} and ${update.environment} update destination`)
+    throw new Error(`desktop upload: ${targetName} package completion record does not match desktop ${desktopVersion}, dsh ${dshVersion} and ${update.environment} update destination`)
   }
 
-  const metadataFilename = desktopUpdateMetadataFilename(dshVersion, target.platform)
+  const metadataFilename = desktopUpdateMetadataFilename(desktopVersion, target.platform)
   const metadataPath = join(artifactsRoot, metadataFilename)
   let metadataValue: unknown
   try {
@@ -211,14 +212,14 @@ export async function createDesktopUploadPlan(
   }
   const metadata = object(metadataValue, metadataFilename)
   const metadataVersion = stringField(metadata.version, `${metadataFilename}.version`)
-  if (metadataVersion !== dshVersion) {
-    throw new Error(`desktop upload: ${metadataFilename} version ${metadataVersion} does not match current dsh version ${dshVersion}`)
+  if (metadataVersion !== desktopVersion) {
+    throw new Error(`desktop upload: ${metadataFilename} version ${metadataVersion} does not match current desktop version ${desktopVersion}`)
   }
   if (!Array.isArray(metadata.files) || metadata.files.length !== 1) {
     throw new Error(`desktop upload: ${metadataFilename}.files must contain exactly one target update file`)
   }
 
-  const base = `deepseek-harness-${dshVersion}-${target.os}-${target.arch}`
+  const base = desktopArtifactBasename(desktopVersion, target.os, target.arch)
   const updaterExtension = target.platform === 'darwin' ? 'zip' : 'exe'
   const updaterInfo = updateFileInfo(metadata.files[0], `${metadataFilename}.files[0]`, `${base}.${updaterExtension}`)
   const updaterPath = await verifyChecksummedArtifact(artifactsRoot, updaterInfo)
@@ -247,7 +248,7 @@ export async function createDesktopUploadPlan(
   return {
     environment: update.environment,
     target: targetName,
-    version: dshVersion,
+    version: desktopVersion,
     publicUrl: update.publicUrl,
     bucket: update.bucket,
     secretIdEnvName: update.secretIdEnvName,
