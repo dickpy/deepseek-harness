@@ -273,7 +273,7 @@ select {
   justify-content: center;
   gap: 8px;
   height: 44px;
-  /* 固定一个下限：待机是「logo + 登录」、提交中是「spinner + 登录中…」，
+  /* 固定一个下限：待机是「登 录」、提交中是「spinner + 登录中…」，
      不设下限的话两种状态宽度不同，按钮会左右跳。 */
   min-width: 148px;
   margin-top: 6px;
@@ -300,17 +300,7 @@ select {
   opacity: 0.7;
 }
 
-/* 提交按钮左侧的品牌 logo：与 spinner 互斥（待机 / 成功时显示 logo，提交中换 spinner）。
-   两者都在按钮的 flex 流里，并给按钮一个最小宽度，避免状态切换时整条按钮跳宽度。 */
-.submit-logo {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  object-fit: contain;
-  background: #fff;
-}
-
+/* 提交中的转圈：只在按钮的 flex 流里占位，靠按钮的最小宽度避免整条按钮跳宽度。 */
 .spinner {
   width: 14px;
   height: 14px;

@@ -71,19 +71,21 @@ it('locks ordinary users to the shipped channel without rendering a switcher', a
   expect(page.element('submit-label').textContent).toBe('登 录')
 })
 
-it('shows the brand logo beside the heading and inside the idle submit button', async () => {
+it('shows the brand logo beside the heading and none inside the submit button', async () => {
   const page = login()
   await page.ready()
   // 页头只有「logo + 标题」：原来那行单独的「维 维小智」品牌名已经去掉
   expect(page.document.querySelector('.heading-row .heading-logo')).not.toBeNull()
   expect(page.document.querySelector('.brand-name')).toBeNull()
   expect(page.element('heading').textContent).toBe('登录维小智')
-  // 登录按钮待机时左侧是 logo（提交中才换成 spinner）
-  expect(page.element('submit-logo').hidden).toBe(false)
+  // 登录按钮里只有文案，不放 logo（品牌标识只出现在页头）
+  expect(page.document.querySelector('.submit-logo')).toBeNull()
+  expect(page.element('submit').querySelectorAll('img')).toHaveLength(0)
   expect(page.element('spinner').hidden).toBe(true)
+  expect(page.element('submit-label').textContent).toBe('登 录')
 })
 
-it('ships the login logo asset that both img sources point at', async () => {
+it('ships the login logo asset that the heading points at', async () => {
   const page = login()
   await page.ready()
   const sources = new Set(
@@ -151,27 +153,26 @@ it('keeps the window open, shows the reason, and never celebrates on rejection',
   expect(page.element('error').textContent).toBe('账号或密码错误')
   expect(page.element('card').className).not.toContain('is-success')
   expect(page.element('spinner').hidden).toBe(true)
-  expect(page.element('submit-logo').hidden).toBe(false)
+  expect(page.document.querySelector('.submit-logo')).toBeNull()
   expect(page.element('submit-label').textContent).toBe('登 录')
   expect(page.complete).not.toHaveBeenCalled()
 })
 
-it('spins and hides the logo only while the credentials are in flight', async () => {
+it('spins only while the credentials are in flight', async () => {
   let release: (() => void) | undefined
   const page = login({}, () => new Promise((resolve) => {
     release = () => resolve({ ok: false, message: '账号或密码错误' })
   }))
   await page.ready()
   await page.paint('zhangsan@company.com', 'secret')
-  // 提交中：spinner 转、logo 让位
+  // 提交中转起来
   await expect.poll(() => page.element('submit-label').textContent).toBe('登录中…')
   expect(page.element('spinner').hidden).toBe(false)
-  expect(page.element('submit-logo').hidden).toBe(true)
   release?.()
-  // 结算后回到待机：spinner 收起、logo 回来
+  // 结算后回到待机：spinner 收起
   await expect.poll(() => page.element('error').hidden).toBe(false)
   expect(page.element('spinner').hidden).toBe(true)
-  expect(page.element('submit-logo').hidden).toBe(false)
+  expect(page.element('submit-label').textContent).toBe('登 录')
 })
 
 it('surfaces a transport failure instead of silently staying busy', async () => {

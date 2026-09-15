@@ -157,9 +157,7 @@ $('form').addEventListener('submit', async (event) => {
       text('heading', messages.loginWelcome ?? 'Welcome')
       text('description', messages.loginSuccess ?? '')
       label.textContent = successLabel
-      // 成功文案左侧保留品牌 logo：这一屏要传达的是「这是维小智」，不是「还在转」。
       $('spinner').hidden = true
-      $('submit-logo').hidden = false
       celebrate()
       // 主进程已把设备令牌落盘；等彩带播完再放行启动流程。
       window.setTimeout(() => { void api.complete?.() }, CONFETTI_DURATION_MS * 0.6)
@@ -174,20 +172,18 @@ $('form').addEventListener('submit', async (event) => {
 })
 
 /**
- * 回到待机态：spinner 收起、品牌 logo 与待机文案回来。
+ * 回到待机态：spinner 收起、待机文案回来。
  * 失败与「主进程没有回话」都走这里——按钮绝不能停在「登录中…」。
  */
 function idleSubmit() {
   $('spinner').hidden = true
-  $('submit-logo').hidden = false
   const label = $('submit-label')
   if (label) label.textContent = submitLabel
 }
 
-/** 进入提交态：spinner 转起来，品牌 logo 让位。 */
+/** 进入提交态：spinner 转起来。 */
 function busySubmit() {
   $('spinner').hidden = false
-  $('submit-logo').hidden = true
 }
 
 init()
