@@ -19,10 +19,12 @@ function desktopHostDependencies(): Record<string, string> {
 }
 
 describe('bundled desktop plugins', () => {
-  it('declares every bundled plugin at the same exact version in the desktop-host manifest', () => {
+  // fork: 外部 bundle 的 peer 指向工作区包时会让 pnpm 的 peer 解析与发布图分叉，
+  // 所以内置插件只由桌面运行时项目从 registry 安装，绝不进工作区依赖图。
+  it('keeps every bundled plugin out of the workspace dependency graph', () => {
     const declared = desktopHostDependencies()
-    for (const [name, version] of Object.entries(DESKTOP_BUNDLED_PLUGINS)) {
-      expect(declared[name], `${name} is missing from apps/desktop-host/package.json`).toBe(version)
+    for (const name of Object.keys(DESKTOP_BUNDLED_PLUGINS)) {
+      expect(declared[name], `${name} must not be a workspace dependency`).toBeUndefined()
     }
   })
 

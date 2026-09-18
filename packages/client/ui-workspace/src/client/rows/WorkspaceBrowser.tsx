@@ -23,7 +23,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { GroupNode, SessionNode, SessionOrderBy } from '../tree.ts'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, liftPinnedRows, orderByRecency, owningGroupKey, owningParentFolder,
+  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
   PINNED_KEY, pinCurrentBlank, reconcileManualOrder, UNGROUPED_KEY, visibleSessionIds,
 } from '../tree.ts'
 import { PinnedSectionItem, ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
@@ -207,8 +207,6 @@ type SessionTreeProps = Pick<
   onSessionArchive: (sessionId: SessionNode['id']) => void
   /** Pin or release a session (row menu action; the Host set is authoritative). */
   onSessionPinned: (sessionId: SessionNode['id'], pinned: boolean) => void
-  /** Session order behavior: fixed after edits, or additionally promoted by user activity. */
-  orderBy: SessionOrderBy
   /** One Session chosen from search that must be exposed and scrolled into view. */
   revealSessionId?: SessionId | undefined
   /** Acknowledge that the chosen Session row has been revealed. */
@@ -221,9 +219,9 @@ function SessionTree({
   archivedSessionIds, pinnedWorkspaceIds, pinnedSessionIds,
   workspaceReady, usePanelInfo,
   onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, onSessionPinned,
-  insertWorkspaceBefore, setWorkspacePinned, insertSessionBefore, orderBy,
+  insertWorkspaceBefore, setWorkspacePinned,
   nestWorkspaces, groupExpansion, setGroupExpanded,
-  sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t,
+  setSessionOrder, home, t,
   revealSessionId, onSessionRevealed,
 }: SessionTreeProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
@@ -291,10 +289,10 @@ function SessionTree({
       .filter(key => groupExpansion[key] ?? ancestorKeys.has(key))
   }, [groupExpansion, parents, workspaces])
   const groups = useMemo(
-    () => deriveGroups(list, workspaces, archivedSessionIds, pinnedSessionIds, statuses, {
+    () => deriveGroups(list, workspaces, archivedSessionIds, statuses, {
       expandedGroups,
       ungroupedOrder: ungroupedSessionIds,
-    }),
+    }, pinnedSessionIds),
     [list, workspaces, archivedSessionIds, pinnedSessionIds, statuses, expandedGroups, ungroupedSessionIds],
   )
   useEffect(() => {
@@ -536,6 +534,11 @@ function SessionTree({
               /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
                 if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
               },
+              pinned: group.workspaceId !== undefined && pinnedWorkspaceIds.includes(group.workspaceId),
+              setPinned: (pinned: boolean) => {
+                /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                if (group.workspaceId !== undefined) setWorkspacePinned(group.workspaceId, pinned)
+              },
             }}
         />
         {group.expanded && children.length > 0 && (
@@ -704,7 +707,7 @@ function FlatList({
               <SessionNodeItem
                 key={node.id}
                 node={node}
-                currentId={panelActive ? undefined : list.current}
+                currentId={currentId}
                 now={now}
                 onOpen={open}
                 onRename={onSessionRename}

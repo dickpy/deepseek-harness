@@ -281,11 +281,7 @@ function buildGroup(
   label: string,
   members: readonly SessionSummary[],
 ): Group {
-  const sessions = [...members]
-  // Real Workspace order comes from sessionIds. Ungrouped falls back to
-  // recency until the browser supplies its persisted local order.
-  if (order === 'recency') sessions.sort(byRecency)
-  return { key, kind, workspaceId, cwd, createdAt, label, sessions }
+  return { key, kind, workspaceId, cwd, createdAt, label, sessions: [...members] }
 }
 
 /** Apply a stored Ungrouped order and append newly loose Sessions by recency. */
@@ -328,14 +324,14 @@ function groupByWorkspace(
   const pinned: SessionSummary[] = []
   for (const id of pinnedSessionIds) {
     const summary = list.byId[id]
-    if (summary === undefined || !sessionVisible(summary, list.current, archived)) continue
+    if (summary === undefined || !sessionVisible(summary, current, archived)) continue
     pinned.push(summary)
     accounted.add(id)
   }
   if (pinned.length > 0) {
     // Pin order is the Host's, so the section preserves it verbatim rather
     // than sorting: the newest pin leads.
-    groups.push(buildGroup(PINNED_KEY, 'pinned', undefined, undefined, undefined, '', pinned, 'account'))
+    groups.push(buildGroup(PINNED_KEY, 'pinned', undefined, undefined, undefined, '', pinned))
   }
   for (const workspace of workspaces) {
     const members: SessionSummary[] = []
@@ -351,7 +347,7 @@ function groupByWorkspace(
     }
     groups.push(buildGroup(
       workspace.workspaceId, 'workspace', workspace.workspaceId, workspace.path,
-      Date.parse(workspace.createdAt), workspace.title, members, 'account',
+      Date.parse(workspace.createdAt), workspace.title, members,
     ))
   }
   const stray = list.ids
@@ -427,10 +423,9 @@ export function deriveGroups(
   list: SessionListState,
   workspaces: readonly WorkspaceView[],
   archivedSessionIds: readonly SessionId[],
-  pinnedSessionIds: readonly SessionId[],
   statuses: SessionStatuses,
-  pinnedSessionIds: readonly SessionId[],
   view: TreeView,
+  pinnedSessionIds: readonly SessionId[] = [],
 ): GroupNode[] {
   const archived = new Set(archivedSessionIds)
   const pinned = pinRanks(pinnedSessionIds)

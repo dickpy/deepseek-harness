@@ -172,11 +172,11 @@ describe('workspace browser rows', () => {
   it('reveals a clipped session title by scrolling it while the row is hovered', () => {
     const node: SessionNode = {
       id: sid('clipped'), title: 'A Session Title Long Enough To Be Clipped (1)', blank: false,
-      running: false, runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+      running: false, runningSubagentCount: 0, completed: false, pinned: false, hasActiveSchedule: false, updatedAt: 0,
     }
     render(
       <SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />,
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} onSetPinned={vi.fn()} t={t} />,
     )
     const row = screen.getByRole('treeitem')
     const title = screen.getByText(node.title)
@@ -201,11 +201,11 @@ describe('workspace browser rows', () => {
   it('returns a revealed title to its start in one step', () => {
     const node: SessionNode = {
       id: sid('instant-return'), title: 'A Session Title Long Enough To Be Clipped (1)', blank: false,
-      running: false, runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+      running: false, runningSubagentCount: 0, completed: false, pinned: false, hasActiveSchedule: false, updatedAt: 0,
     }
     render(
       <SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />,
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} onSetPinned={vi.fn()} t={t} />,
     )
     const row = screen.getByRole('treeitem')
     const title = screen.getByText(node.title)

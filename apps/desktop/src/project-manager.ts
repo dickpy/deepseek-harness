@@ -38,11 +38,12 @@ const WEB_PROFILE = PROFILE_TEMPLATES.web as ProfileTemplate
  * bundle carrying its own `cordis.patch.yml`, so the profile order alone
  * mounts it.
  *
- * The same versions are declared in `apps/desktop-host/package.json` — that
- * manifest is what the workspace install, the dependency graph, and the
- * third-party notices read; this table is what the packaging scripts install
- * and record in the runtime inventory. `tests/bundled-plugins.spec.ts` keeps
- * the two in step.
+ * This table is the single source the runtime project installs from: the
+ * workspace deliberately does not declare these packages, because an external
+ * bundle whose peers point at workspace packages makes pnpm's peer resolution
+ * diverge from the published graph. `prepare-dsh` verifies the installed copy
+ * against this table, and `tests/bundled-plugins.spec.ts` keeps the workspace
+ * manifest free of them.
  */
 export const DESKTOP_BUNDLED_PLUGINS: Readonly<Record<string, string>> = {
   'dsh-context': '0.52.2',

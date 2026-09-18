@@ -21,7 +21,6 @@
     "@deepseek-ai/dsh-jobs": "workspace:^",
     "@deepseek-ai/dsh-plugin-enterprise": "workspace:^",
     "@deepseek-ai/dsh-skill-office": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^",
-    "dsh-context": "0.52.2"
+    "@deepseek-ai/dsh-tools": "workspace:^"
   }
 }

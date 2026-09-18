@@ -45,7 +45,9 @@ function targetWorkspace(
   workspaces: readonly WorkspaceView[],
   sessions: SessionListState,
 ): WorkspaceId | undefined {
-  const current = sessions.current
+  // 上游把「当前会话」从 list.current 改成 retainedBy.mainView 投影。
+  const current = Object.values(sessions.byId)
+    .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
   const currentWorkspace = current === undefined
     ? undefined
     : workspaces.find(item => item.sessionIds.includes(current))?.workspaceId
