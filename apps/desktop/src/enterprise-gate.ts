@@ -356,13 +356,12 @@ export async function ensureEnterpriseGate(deps: GateDeps): Promise<EnterpriseGa
         menus: result.ok ? result.menus : stored.menus,
       }
       if (!result.ok) {
-        if (result.offline) {
-          deps.warn('企业管理服务器不可达，以离线模式放行')
-          applySessionEnvironment(deps.app, session)
-          return { kind: 'session', session }
-        }
-        deps.warn('已保存的登录会话已失效，需要重新登录')
-        // 令牌失效：清掉存储，落入登录窗流程
+        // fork: 门禁必须在线校验通过。服务器不可达时不再离线放行，
+        // 一律清掉本地令牌并回到登录窗，由用户重新登录。
+        deps.warn(result.offline
+          ? '企业管理服务器不可达，需要重新登录'
+          : '已保存的登录会话已失效，需要重新登录')
+        // 令牌不可用：清掉存储，落入登录窗流程
         try { writeFileSync(sessionFile(), '') } catch { /* ignore */ }
       } else {
         applySessionEnvironment(deps.app, session)
