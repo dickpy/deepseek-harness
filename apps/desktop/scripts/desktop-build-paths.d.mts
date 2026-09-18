@@ -12,7 +12,7 @@ export interface DesktopTargetBuildPaths {
   readonly dshPnpmStore: string
   /** Working directory for runtime materialization; must share the store's volume. */
   readonly dshRuntimeBuild: string
-  readonly nodeExtract: string
+  readonly electron: string
   readonly packedDsh: string
   readonly packedVendor: string
   readonly packedLandlock: string

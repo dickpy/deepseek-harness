@@ -25,6 +25,7 @@ import type {
   WorkspaceRenameRequest,
   WorkspaceSetSessionPinnedRequest,
   WorkspaceSetPinnedRequest,
+  WorkspaceUnarchiveSessionRequest,
   WorkspaceValue,
 } from './types.ts'
 
@@ -197,6 +198,18 @@ export class WorkspaceCommands {
   async setSessionPinned(request: WorkspaceSetSessionPinnedRequest): Promise<WorkspacePinSessionValue> {
     await this.ctx.workspaceRegistry.setSessionPinned(request.sessionId, request.pinned)
     return { pinnedSessionIds: [...this.ctx.workspaceRegistry.pinnedSessionIds] }
+  }
+
+  /**
+   * Drop one Session from the registry-global archive set. An id that is not
+   * archived is not an error: the call is idempotent, so a lost race with
+   * another surface resolves as a no-op.
+   * @param request - Session identity to unarchive.
+   * @returns the complete resulting archive set.
+   */
+  async unarchiveSession(request: WorkspaceUnarchiveSessionRequest): Promise<WorkspaceArchiveValue> {
+    await this.ctx.workspaceRegistry.unarchiveSession(request.sessionId)
+    return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
   }
 
   private requireWorkspace(workspaceId: WorkspaceId): Workspace {

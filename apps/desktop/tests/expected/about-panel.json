@@ -1,0 +1,28 @@
+{
+  "en-US": {
+    "menu": [
+      { "label": "About 维小智", "role": "about" },
+      { "type": "separator" }
+    ],
+    "options": {
+      "applicationName": "维小智",
+      "applicationVersion": "1.0.0",
+      "version": "",
+      "copyright": "",
+      "iconPath": "<app icon>"
+    }
+  },
+  "zh-CN": {
+    "menu": [
+      { "label": "关于 维小智", "role": "about" },
+      { "type": "separator" }
+    ],
+    "options": {
+      "applicationName": "维小智",
+      "applicationVersion": "1.0.0",
+      "version": "",
+      "copyright": "",
+      "iconPath": "<app icon>"
+    }
+  }
+}

@@ -77,6 +77,11 @@ export interface IWorkspaces {
    */
   setSessionPinned(sessionId: SessionId, pinned: boolean): Promise<void>
   /**
+   * Unarchive a Session from the archived Session list.
+   * @param sessionId - Session to unarchive.
+   */
+  unarchiveSession(sessionId: SessionId): Promise<void>
+  /**
    * Move a Session within one Workspace account.
    * @param workspaceId - owning Workspace.
    * @param sessionId - Session to move.
@@ -138,6 +143,11 @@ export class WorkspaceController extends Service implements IWorkspaces {
   async setSessionPinned(sessionId: SessionId, pinned: boolean): Promise<void> {
     const result = await this.model.setSessionPinned(sessionId, pinned)
     if (!result.ok) throw commandError(pinned ? 'session pin' : 'session unpin', result.error)
+  }
+
+  async unarchiveSession(sessionId: SessionId): Promise<void> {
+    const result = await this.model.unarchiveSession(sessionId)
+    if (!result.ok) throw commandError('session unarchive', result.error)
   }
 
   async insertSessionBefore(

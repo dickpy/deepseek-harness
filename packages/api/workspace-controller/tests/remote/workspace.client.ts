@@ -23,6 +23,7 @@ import type {
   WorkspaceRenameRequest,
   WorkspaceSetSessionPinnedRequest,
   WorkspaceSetPinnedRequest,
+  WorkspaceUnarchiveSessionRequest,
   WorkspaceValue,
   WorkspaceView,
 } from '../../src/types.ts'
@@ -115,5 +116,6 @@ export const workspaceWorld: RemoteTable = {
     ): RemoteResult<WorkspacePinSessionValue> => ok({
       pinnedSessionIds: request.pinned ? [request.sessionId] : [],
     }),
+    'workspace/unarchiveSession': (_request: WorkspaceUnarchiveSessionRequest): RemoteResult<WorkspaceArchiveValue> => ok({ archivedSessionIds: [] }),
   },
 }

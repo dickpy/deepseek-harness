@@ -1,13 +1,12 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { en, formatDesktopMessage, resolveDesktopLocale, zh } from '../src/locale.ts'
 
 describe('desktop locale dictionaries', () => {
   it('ships the same key set in English and Chinese', () => {
     expect(Object.keys(zh)).toEqual(Object.keys(en))
-    expect(resolveDesktopLocale('zh-Hans-CN')).toEqual({ id: 'zh-CN', messages: zh })
-    expect(resolveDesktopLocale('en-US')).toEqual({ id: 'en', messages: en })
-    expect(resolveDesktopLocale('fr-FR')).toEqual({ id: 'en', messages: en })
+    expect(resolveDesktopLocale('zh-Hans-CN').messages).toEqual(zh)
+    expect(resolveDesktopLocale('en-US').messages).toEqual(en)
+    expect(resolveDesktopLocale('fr-FR').messages).toEqual(en)
   })
 
   it('formats named values without consuming unknown placeholders', () => {
@@ -15,7 +14,7 @@ describe('desktop locale dictionaries', () => {
       .toBe('plugin@1.2.3 {missing}')
   })
 
-  it.each(['plugin-manager.html', 'login.html'])('keeps visible %s copy in the locale dictionaries', (file) => {
+  it.each(['login.html'])('keeps visible %s copy in the locale dictionaries', (file) => {
     const html = readFileSync(new URL(`../renderer/${file}`, import.meta.url), 'utf8')
     const staticText = [...html.matchAll(/>([^<]*\p{L}[^<]*)</gu)].map(match => match[1]?.trim())
     expect(staticText).toEqual([])

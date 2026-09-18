@@ -1,14 +1,14 @@
 /**
- * Derives the workspace browser tree from Host Workspace order and membership.
- * Unassigned Sessions trail under Ungrouped; only the selected blank Session
- * remains visible.
+ * Derives the workspace browser tree from caller-projected Workspace and
+ * Session order. Unassigned Sessions trail under Ungrouped; only the selected
+ * blank Session remains visible.
  */
 import {
   type SessionListState, type SessionSearchResultItem, type SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {
-  SessionPendingInteractionBase,
+  SessionStatusSnapshot,
 } from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-schedule/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -43,7 +43,12 @@ export function owningGroupKey(
 
 /** Pending interaction kinds with dedicated Workspace-row presentation. */
 export type SessionPendingInteractionStatus = 'approval' | 'plan-review' | 'question'
-type SessionPendingInteractions = ReadonlyMap<SessionId, SessionPendingInteractionBase>
+type SessionStatuses = SessionStatusSnapshot
+
+function mainSessionId(list: SessionListState): SessionId | undefined {
+  return Object.values(list.byId)
+    .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+}
 
 /** One top-level session row in a group or the flat list. */
 export interface SessionNode {
@@ -145,10 +150,68 @@ export function workspaceLabel(cwd: string | undefined): string {
   return base !== '' ? base : cwd
 }
 
-/** Recency comparator: newest first, id as the deterministic tiebreak (ids are unique per group). */
-function byRecency(a: SessionSummary, b: SessionSummary): number {
-  if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt
-  return a.id < b.id ? -1 : 1
+/**
+ * Project known account members by current Session recency.
+ * @param sessionIds - authoritative account membership.
+ * @param summaries - current Session summaries; members without a summary are omitted until it arrives.
+ * @returns known members newest first, with Session identity as the deterministic tie-break.
+ */
+export function orderByRecency(
+  sessionIds: readonly SessionId[],
+  summaries: SessionListState['byId'],
+): SessionId[] {
+  return sessionIds.flatMap((id) => {
+    const summary = summaries[id]
+    return summary === undefined ? [] : [{ id, updatedAt: summary.updatedAt }]
+  })
+    .sort((a, b) => {
+      if (a.updatedAt !== b.updatedAt) return b.updatedAt - a.updatedAt
+      return a.id < b.id ? -1 : 1
+    })
+    .map(member => member.id)
+}
+
+/**
+ * Reconcile a browser-local manual order with current account membership.
+ * @param memberIds - authoritative account membership.
+ * @param savedOrder - previously saved browser-local order.
+ * @param summaries - current Session summaries used to append newly known members by recency.
+ * @returns retained saved slots followed by newly known members; departed members and unknown new members are omitted.
+ */
+export function reconcileManualOrder(
+  memberIds: readonly SessionId[],
+  savedOrder: readonly string[] | undefined,
+  summaries: SessionListState['byId'],
+): SessionId[] {
+  const members = new Map(memberIds.map(id => [id as string, id]))
+  const included = new Set<string>()
+  const ordered: SessionId[] = []
+  for (const key of savedOrder ?? []) {
+    const id = members.get(key)
+    if (id === undefined || included.has(key)) continue
+    ordered.push(id)
+    included.add(key)
+  }
+  for (const id of orderByRecency(memberIds, summaries)) {
+    if (included.has(id)) continue
+    ordered.push(id)
+    included.add(id)
+  }
+  return ordered
+}
+
+/**
+ * Keep the selected provisional New Session ahead of either base order.
+ * @param order - recency or reconciled manual order.
+ * @param currentBlank - selected blank Session in this account, when present.
+ * @returns a copy with the selected blank first and no duplicate slot.
+ */
+export function pinCurrentBlank(
+  order: readonly SessionId[],
+  currentBlank: SessionId | undefined,
+): SessionId[] {
+  if (currentBlank === undefined) return [...order]
+  return [currentBlank, ...order.filter(id => id !== currentBlank)]
 }
 
 /** Rank of each pinned Session inside the registry-global pin set; lower leads. */
@@ -217,7 +280,6 @@ function buildGroup(
   createdAt: number | undefined,
   label: string,
   members: readonly SessionSummary[],
-  order: 'account' | 'recency',
 ): Group {
   const sessions = [...members]
   // Real Workspace order comes from sessionIds. Ungrouped falls back to
@@ -227,21 +289,20 @@ function buildGroup(
 }
 
 /** Apply a stored Ungrouped order and append newly loose Sessions by recency. */
-function orderedUngrouped(members: readonly SessionSummary[], stored: readonly string[]): SessionSummary[] {
+function orderedUngrouped(
+  members: readonly SessionSummary[],
+  stored: readonly string[] | undefined,
+  summaries: SessionListState['byId'],
+): SessionSummary[] {
   const byId = new Map(members.map(session => [session.id as string, session]))
-  const included = new Set<string>()
-  const ordered: SessionSummary[] = []
-  for (const key of stored) {
-    const session = byId.get(key)
-    if (session === undefined || included.has(key)) continue
-    ordered.push(session)
-    included.add(key)
-  }
-  for (const session of [...members].sort(byRecency)) {
-    if (included.has(session.id)) continue
-    ordered.push(session)
-  }
-  return ordered
+  const ids = stored === undefined
+    ? orderByRecency(members.map(session => session.id), summaries)
+    : reconcileManualOrder(members.map(session => session.id), stored, summaries)
+  return ids.flatMap((id) => {
+    const session = byId.get(id)
+    /* v8 ignore next -- ids are projected exclusively from the members used to build byId. */
+    return session === undefined ? [] : [session]
+  })
 }
 
 /**
@@ -261,6 +322,7 @@ function groupByWorkspace(
   pinnedSessionIds: readonly SessionId[],
   ungroupedOrder: readonly string[] | undefined,
 ): Group[] {
+  const current = mainSessionId(list)
   const groups: Group[] = []
   const accounted = new Set<SessionId>()
   const pinned: SessionSummary[] = []
@@ -284,7 +346,7 @@ function groupByWorkspace(
       // Only an unclaimed id counts as accounted: a pinned Session already
       // rendered above must not reappear here or under Ungrouped.
       accounted.add(id)
-      if (!sessionVisible(summary, list.current, archived)) continue
+      if (!sessionVisible(summary, current, archived)) continue
       members.push(summary)
     }
     groups.push(buildGroup(
@@ -295,7 +357,7 @@ function groupByWorkspace(
   const stray = list.ids
     .map(id => list.byId[id])
     .filter((s): s is SessionSummary =>
-      s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
+      s !== undefined && !accounted.has(s.id) && sessionVisible(s, current, archived))
   if (stray.length > 0) {
     groups.push(buildGroup(
       UNGROUPED_KEY,
@@ -304,8 +366,7 @@ function groupByWorkspace(
       undefined,
       undefined,
       '',
-      ungroupedOrder === undefined ? stray : orderedUngrouped(stray, ungroupedOrder),
-      ungroupedOrder === undefined ? 'recency' : 'account',
+      orderedUngrouped(stray, ungroupedOrder, list.byId),
     ))
   }
   return groups
@@ -326,18 +387,19 @@ function visiblePendingKind(kind: string | undefined): SessionPendingInteraction
 function sessionNode(
   s: SessionSummary,
   descendants: ReadonlyMap<SessionId, SubagentDescendantSummary>,
-  pendingInteractions: SessionPendingInteractions,
+  statuses: SessionStatuses,
   pinned: ReadonlyMap<SessionId, number>,
 ): SessionNode {
-  const pendingInteraction = visiblePendingKind(pendingInteractions.get(s.id)?.kind)
+  const status = statuses.get(s.id)
+  const pendingInteraction = visiblePendingKind(status?.pendingInteraction?.kind)
   return {
     id: s.id,
     title: sessionTitle(s),
     blank: s.blank,
     pinned: pinned.has(s.id),
-    running: s.running,
+    running: status?.running ?? s.running,
     runningSubagentCount: descendants.get(s.id)?.runningCount ?? 0,
-    completed: s.completed === true,
+    completed: status?.completionUnread === true,
     hasActiveSchedule: hasActiveSchedule(s),
     updatedAt: s.updatedAt,
     ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
@@ -352,12 +414,12 @@ function sessionNode(
  * provisional New Session row; archived sessions are excluded everywhere.
  * Content search lives outside this derivation
  * (see {@link deriveSearchResults}).
- * @param list - sessions list snapshot (`current` feeds containsCurrent).
- * @param workspaces - real workspaces in stable Host order.
+ * @param list - sessions list snapshot (`mainView` retention feeds containsCurrent).
+ * @param workspaces - real Workspaces in Host group order with caller-projected Session order.
  * @param archivedSessionIds - registry-global archive set.
  * @param pinnedSessionIds - registry-global pin set; members lead the list as
  * their own section and are not repeated under their Workspace.
- * @param pendingInteractions - pending UI interactions by Session.
+ * @param statuses - unified UI status by Session.
  * @param view - local expansion arrays.
  * @returns group sections in render order.
  */
@@ -366,16 +428,18 @@ export function deriveGroups(
   workspaces: readonly WorkspaceView[],
   archivedSessionIds: readonly SessionId[],
   pinnedSessionIds: readonly SessionId[],
-  pendingInteractions: SessionPendingInteractions,
+  statuses: SessionStatuses,
+  pinnedSessionIds: readonly SessionId[],
   view: TreeView,
 ): GroupNode[] {
   const archived = new Set(archivedSessionIds)
   const pinned = pinRanks(pinnedSessionIds)
   const expandedGroups = new Set(view.expandedGroups)
   const descendants = indexSubagentDescendants(list.byId)
-  const currentGroup = list.current === undefined
+  const current = mainSessionId(list)
+  const currentGroup = current === undefined
     ? undefined
-    : owningGroupKey(workspaces, list.current)
+    : owningGroupKey(workspaces, current)
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces, archived, pinnedSessionIds, view.ungroupedOrder)) {
     // The pinned section always shows: its rows are the ones the operator
@@ -392,7 +456,7 @@ export function deriveGroups(
       expanded,
       containsCurrent: g.key === currentGroup,
       sessions: expanded
-        ? g.sessions.map(session => sessionNode(session, descendants, pendingInteractions, pinned))
+        ? g.sessions.map(session => sessionNode(session, descendants, statuses, pinned))
         : [],
     })
   }
@@ -400,34 +464,45 @@ export function deriveGroups(
 }
 
 /**
- * Derive the flat session list ("In one list" mode): every session — fork
- * children included — as a top-level row, strictly newest-first. No grouping,
- * no parent/child adjacency. Content search lives outside this derivation
- * (see {@link deriveSearchResults}).
+ * Select flat-list members without deriving row presentation or ordering.
  * @param list - sessions list snapshot.
  * @param archivedSessionIds - registry-global archive set.
+ * @returns known visible Session ids in list order, including ordinary forks and only the current blank.
+ */
+export function visibleSessionIds(
+  list: SessionListState,
+  archivedSessionIds: readonly SessionId[],
+): SessionId[] {
+  const archived = new Set(archivedSessionIds)
+  const current = mainSessionId(list)
+  return list.ids.filter((id) => {
+    const s = list.byId[id]
+    return s !== undefined && sessionVisible(s, current, archived)
+  })
+}
+
+/**
+ * Derive flat rows from the browser's ordered visible Session ids.
+ * @param list - sessions list snapshot used to select the ids.
+ * @param sessionIds - known visible members in render order, including any pinned blank.
+ * @param statuses - unified UI status by Session.
  * @param pinnedSessionIds - registry-global pin set; members lead the list.
- * @param pendingInteractions - pending UI interactions by Session.
- * @returns flat rows in render order.
+ * @returns flat rows in the supplied order with current status indicators.
  */
 export function deriveFlat(
   list: SessionListState,
-  archivedSessionIds: readonly SessionId[],
-  pinnedSessionIds: readonly SessionId[],
-  pendingInteractions: SessionPendingInteractions,
+  sessionIds: readonly SessionId[],
+  statuses: SessionStatuses,
+  pinnedSessionIds: readonly SessionId[] = [],
 ): SessionNode[] {
-  const archived = new Set(archivedSessionIds)
   const pinned = pinRanks(pinnedSessionIds)
   const descendants = indexSubagentDescendants(list.byId)
-  const rows: SessionSummary[] = []
-  for (const id of list.ids) {
-    const s = list.byId[id]
-    if (s === undefined || !sessionVisible(s, list.current, archived)) continue
-    rows.push(s)
-  }
-  rows.sort(byRecency)
+  const rows = sessionIds.flatMap((id) => {
+    const summary = list.byId[id]
+    return summary === undefined ? [] : [summary]
+  })
   return liftPinnedRows(rows, pinnedSessionIds)
-    .map(session => sessionNode(session, descendants, pendingInteractions, pinned))
+    .map(session => sessionNode(session, descendants, statuses, pinned))
 }
 
 /**
@@ -438,7 +513,7 @@ export function deriveFlat(
  * @param workspaces - Workspace membership and display labels.
  * @param query - caller text; surrounding whitespace is ignored.
  * @param archivedSessionIds - registry-global archive set (members never match).
- * @param pendingInteractions - pending UI interactions by Session.
+ * @param statuses - unified UI status by Session.
  * @param content - ranked Host content-search page.
  * @param limit - protocol-owned maximum merged row count.
  * @returns bounded deduplicated flat rows and a refine-query hint bit.
@@ -448,7 +523,7 @@ export function deriveSearchResults(
   workspaces: readonly WorkspaceView[],
   query: string,
   archivedSessionIds: readonly SessionId[],
-  pendingInteractions: SessionPendingInteractions,
+  statuses: SessionStatuses,
   content: { items: readonly SessionSearchResultItem[]; hasMore: boolean },
   limit: number,
 ): SearchResultSet {
@@ -456,6 +531,7 @@ export function deriveSearchResults(
   if (q === '') return { items: [], hasMore: false }
   const archived = new Set(archivedSessionIds)
   const descendants = indexSubagentDescendants(list.byId)
+  const current = mainSessionId(list)
 
   const workspaceBySession = new Map<SessionId, string>()
   for (const workspace of workspaces) {
@@ -475,7 +551,7 @@ export function deriveSearchResults(
     const summary = list.byId[id]
     // Blank placeholders never match a query (their canonical title displays
     // localized, so matching it would tie search to one language).
-    if (summary === undefined || summary.blank || !sessionVisible(summary, list.current, archived)) continue
+    if (summary === undefined || summary.blank || !sessionVisible(summary, current, archived)) continue
     if (
       sessionTitle(summary).toLowerCase().includes(q)
       || labelOf(summary).toLowerCase().includes(q)
@@ -483,7 +559,9 @@ export function deriveSearchResults(
       local.push(summary)
     }
   }
-  local.sort(byRecency)
+  const localById = new Map(local.map(summary => [summary.id, summary]))
+  const orderedLocal = orderByRecency(local.map(summary => summary.id), list.byId)
+    .map(id => localById.get(id) as SessionSummary)
 
   const ordered: SessionSummary[] = []
   const included = new Set<SessionId>()
@@ -492,30 +570,58 @@ export function deriveSearchResults(
     included.add(summary.id)
     ordered.push(summary)
   }
-  for (const summary of local) include(summary)
+  for (const summary of orderedLocal) include(summary)
   for (const item of content.items) {
     const summary = list.byId[item.sessionId]
-    if (summary !== undefined && !summary.blank && sessionVisible(summary, list.current, archived)) include(summary)
+    if (summary !== undefined && !summary.blank && sessionVisible(summary, current, archived)) include(summary)
   }
 
   return {
     items: ordered.slice(0, limit).map((summary) => {
       const match = contentBySession.get(summary.id)
-      const pendingInteraction = visiblePendingKind(pendingInteractions.get(summary.id)?.kind)
+      const status = statuses.get(summary.id)
+      const pendingInteraction = visiblePendingKind(status?.pendingInteraction?.kind)
       return {
         id: summary.id,
         title: sessionTitle(summary),
         workspace: labelOf(summary),
-        running: summary.running,
+        running: status?.running ?? summary.running,
         runningSubagentCount: descendants.get(summary.id)?.runningCount ?? 0,
         ...(pendingInteraction === undefined
           ? {}
           : { pendingInteraction }),
-        completed: summary.completed === true,
+        completed: status?.completionUnread === true,
         hasActiveSchedule: hasActiveSchedule(summary),
         ...match === undefined ? {} : { snippet: match.snippet },
       }
     }),
     hasMore: content.hasMore || ordered.length > limit,
   }
+}
+
+/** Normalize separators for comparison without interpreting POSIX backslashes as separators. */
+function folderPath(path: string): string {
+  const windows = /^[A-Za-z]:[/\\]/.test(path) || path.startsWith('\\\\')
+  return (windows ? path.replaceAll('\\', '/') : path).replace(/\/+$/, '')
+}
+
+/**
+ * Find the nearest registered ancestor, excluding the Workspace directory itself.
+ * Paths use Host spelling; matching is case-sensitive, like Workspace identity.
+ * @param path - Workspace directory.
+ * @param parents - registered Workspace directory paths.
+ * @returns the owning parent path, or undefined when no parent contains the Workspace.
+ */
+export function owningParentFolder(path: string, parents: readonly string[]): string | undefined {
+  const child = folderPath(path)
+  let owner: string | undefined
+  let length = -1
+  for (const parent of parents) {
+    const root = folderPath(parent)
+    if (root.length > length && child !== root && child.startsWith(`${root}/`)) {
+      owner = parent
+      length = root.length
+    }
+  }
+  return owner
 }
