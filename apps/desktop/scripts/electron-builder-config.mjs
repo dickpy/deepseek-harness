@@ -43,6 +43,10 @@ export function createElectronBuilderConfig(
 ) {
   const appId = resolveDesktopAppId(env)
   const policy = resolveDesktopPolicyEnvironment(env)
+  // fork: 安装器形态。classic = electron-builder 经典 NSIS 界面，没有任何现场编译的
+  // 原生 DLL，安全软件（Symantec 的 Heur.AdvML.B 等）不会拦；custom = 上游 0.1.6 的
+  // 自绘目录安装器，需要 window-frame.dll，未签名时容易被启发式引擎拦截。
+  const customInstaller = env.DSH_DESKTOP_INSTALLER === 'custom'
   const targetPlatform = env.DSH_DESKTOP_TARGET_PLATFORM
   const resolvedPlatform = targetPlatform ?? hostPlatform
   const resolvedArch = env.DSH_DESKTOP_TARGET_ARCH ?? hostArch
@@ -53,7 +57,7 @@ export function createElectronBuilderConfig(
   if (unsigned && resolvedPlatform !== 'win32') throw new Error('desktop package: unsigned builds require Windows')
   const packagesMacOS = targetPlatform === 'darwin' || (targetPlatform === undefined && hostPlatform === 'darwin')
   const packagesWindows = resolvedPlatform === 'win32'
-  if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
+  if (resolvedPlatform === 'win32' && customInstaller) installWindowsDirectoryInstaller()
   const macOSSigning = packagesMacOS ? resolveMacOSSigningEnvironment(env) : undefined
   if (packagesMacOS) resolveMacOSNotarizationEnvironment(env)
   const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
@@ -103,7 +107,8 @@ export function createElectronBuilderConfig(
     electronDist: buildPaths.electron,
     electronFuses: { runAsNode: true },
     beforeBuild: async () => {
-      if (resolvedPlatform !== 'win32') return true
+      // 经典安装器不用自绘资源，自然也不需要 Visual Studio 编译 window-frame.dll。
+      if (resolvedPlatform !== 'win32' || !customInstaller) return true
       await promisify(execFile)('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
         fileURLToPath(new URL('./prepare-windows-installer.ps1', import.meta.url)),
         '-OutputDirectory', join(buildPaths.root, 'installer-ui')], {
@@ -215,13 +220,20 @@ export function createElectronBuilderConfig(
       target: ['AppImage'],
     },
     nsis: {
-      installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
-      uninstallerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
-      include: fileURLToPath(new URL('./installer.nsh', import.meta.url)),
+      // fork: 经典形态用随仓库带的品牌侧栏图；自绘形态用它自己生成的那套。
+      installerSidebar: customInstaller
+        ? join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp')
+        : fileURLToPath(new URL('../installer/assets/sidebar.bmp', import.meta.url)),
+      uninstallerSidebar: customInstaller
+        ? join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp')
+        : fileURLToPath(new URL('../installer/assets/sidebar.bmp', import.meta.url)),
+      // 自绘页面与 DLL 只在自绘形态下注入。
+      ...(customInstaller ? { include: fileURLToPath(new URL('./installer.nsh', import.meta.url)) } : {}),
       oneClick: false,
       perMachine: false,
       allowElevation: false,
-      allowToChangeInstallationDirectory: false,
+      // 经典形态放开安装目录页（默认沿用上一次注册的安装目录）。
+      allowToChangeInstallationDirectory: !customInstaller,
       installerLanguages: ['en_US', 'zh_CN'],
       differentialPackage: true,
     },
