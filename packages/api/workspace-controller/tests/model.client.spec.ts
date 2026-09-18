@@ -13,7 +13,10 @@ import type {
   WorkspaceInsertBeforeRequest,
   WorkspaceInsertSessionBeforeRequest,
   WorkspaceOrderValue,
+  WorkspacePinSessionValue,
   WorkspaceRenameRequest,
+  WorkspaceSetSessionPinnedRequest,
+  WorkspaceSetPinnedRequest,
   WorkspaceValue,
   WorkspaceId,
   WorkspaceView,
@@ -74,7 +77,14 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
   onInsertBefore: (
     request: WorkspaceInsertBeforeRequest,
   ) => Promise<RemoteResult<WorkspaceOrderValue>> = request =>
-    Promise.resolve(remoteOk({ workspaceIds: [request.workspaceId] }))
+    Promise.resolve(remoteOk({ workspaceIds: [request.workspaceId], pinnedWorkspaceIds: [] }))
+  onSetPinned: (
+    request: WorkspaceSetPinnedRequest,
+  ) => Promise<RemoteResult<WorkspaceOrderValue>> = request =>
+    Promise.resolve(remoteOk({
+      workspaceIds: [request.workspaceId],
+      pinnedWorkspaceIds: request.pinned ? [request.workspaceId] : [],
+    }))
   onInsertSessionBefore: (
     request: WorkspaceInsertSessionBeforeRequest,
   ) => Promise<RemoteResult<WorkspaceValue>> = request => Promise.resolve(remoteOk({
@@ -84,6 +94,10 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
     request: WorkspaceArchiveSessionRequest,
   ) => Promise<RemoteResult<WorkspaceArchiveValue>> = request =>
     Promise.resolve(remoteOk({ archivedSessionIds: [request.sessionId] }))
+  onSetSessionPinned: (
+    request: WorkspaceSetSessionPinnedRequest,
+  ) => Promise<RemoteResult<WorkspacePinSessionValue>> = request =>
+    Promise.resolve(remoteOk({ pinnedSessionIds: request.pinned ? [request.sessionId] : [] }))
 
   create(request: WorkspaceCreateRequest): Promise<RemoteResult<WorkspaceCreateValue>> {
     this.record('create', request)
@@ -105,6 +119,11 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
     return this.onInsertBefore(request)
   }
 
+  setPinned(request: WorkspaceSetPinnedRequest): Promise<RemoteResult<WorkspaceOrderValue>> {
+    this.record('setPinned', request)
+    return this.onSetPinned(request)
+  }
+
   insertSessionBefore(request: WorkspaceInsertSessionBeforeRequest): Promise<RemoteResult<WorkspaceValue>> {
     this.record('insertSessionBefore', request)
     return this.onInsertSessionBefore(request)
@@ -113,6 +132,11 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
   archiveSession(request: WorkspaceArchiveSessionRequest): Promise<RemoteResult<WorkspaceArchiveValue>> {
     this.record('archiveSession', request)
     return this.onArchiveSession(request)
+  }
+
+  setSessionPinned(request: WorkspaceSetSessionPinnedRequest): Promise<RemoteResult<WorkspacePinSessionValue>> {
+    this.record('setSessionPinned', request)
+    return this.onSetSessionPinned(request)
   }
 
   async *follow(_signal?: AbortSignal): AsyncGenerator<WorkspaceFollowFrame> {}
@@ -130,8 +154,10 @@ function baseline(
   model: ClientWorkspaceModel,
   items: readonly WorkspaceView[] = [],
   archivedSessionIds: readonly SessionId[] = [],
+  pinnedWorkspaceIds: readonly WorkspaceId[] = [],
+  pinnedSessionIds: readonly SessionId[] = [],
 ): void {
-  model.replaceBaseline({ items, archivedSessionIds })
+  model.replaceBaseline({ items, archivedSessionIds, pinnedWorkspaceIds, pinnedSessionIds })
 }
 
 describe('ClientWorkspaceModel', () => {
@@ -140,7 +166,7 @@ describe('ClientWorkspaceModel', () => {
     expect(model.getSnapshot()).toMatchObject({ phase: 'pending', state: 'loading' })
     baseline(model, [workspace('old'), workspace('kept')])
     model.upsertView(workspace('new'))
-    model.replaceOrder([wid('kept'), wid('new'), wid('old')])
+    model.replaceOrder([wid('kept'), wid('new'), wid('old')], [])
     model.replaceArchived([sid('hidden')])
     model.removeView(wid('old'))
     expect(model.getSnapshot()).toMatchObject({ phase: 'ready', state: 'idle', archivedSessionIds: ['hidden'] })
@@ -188,8 +214,8 @@ describe('ClientWorkspaceModel', () => {
     remote.onInsertBefore = () => gate.promise
     const pending = model.insertBefore(wid('three'), wid('one'))
     expect(model.getSnapshot().items.map(item => item.workspaceId)).toEqual(['three', 'one', 'two'])
-    model.replaceOrder([wid('one'), wid('three'), wid('two')])
-    gate.resolve(remoteOk({ workspaceIds: [wid('three'), wid('one'), wid('two')] }))
+    model.replaceOrder([wid('one'), wid('three'), wid('two')], [])
+    gate.resolve(remoteOk({ workspaceIds: [wid('three'), wid('one'), wid('two')], pinnedWorkspaceIds: [] }))
     await pending
     expect(model.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'three', 'two'])
 
@@ -218,7 +244,7 @@ describe('ClientWorkspaceModel', () => {
     ))
     await expect(first).resolves.toMatchObject({ ok: false })
     expect(model.getSnapshot().items.map(item => item.workspaceId)).toEqual(['two', 'three', 'one'])
-    secondGate.resolve(remoteOk({ workspaceIds: [wid('two'), wid('three'), wid('one')] }))
+    secondGate.resolve(remoteOk({ workspaceIds: [wid('two'), wid('three'), wid('one')], pinnedWorkspaceIds: [] }))
     await expect(second).resolves.toMatchObject({ ok: true })
   })
 
@@ -319,11 +345,11 @@ describe('ClientWorkspaceModel', () => {
     model.upsertView(workspace('one', [sid('new')], '2026-03-01T00:00:00.000Z'))
     expect(model.getSnapshot().items[0]?.sessionIds).toEqual(['new'])
 
-    model.replaceOrder([wid('one')])
+    model.replaceOrder([wid('one')], [])
     expect(model.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'two'])
-    model.replaceOrder([wid('two')])
+    model.replaceOrder([wid('two')], [])
     expect(model.getSnapshot().items.map(item => item.workspaceId)).toEqual(['two', 'one'])
-    model.replaceOrder([wid('one')])
+    model.replaceOrder([wid('one')], [])
     expect(model.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'two'])
 
     await expect(model.insertBefore(wid('one'), wid('one'))).resolves.toMatchObject({ ok: true })

@@ -62,6 +62,17 @@ export class WorkspaceOrderInvalidError extends Error {
   }
 }
 
+/** A pin request named a workspace absent from the durable registry order. */
+export class WorkspacePinInvalidError extends Error {
+  /**
+   * @param workspaceId - Missing workspace id.
+   */
+  constructor(readonly workspaceId: WorkspaceId) {
+    super(`cannot change the pin of unknown workspace '${workspaceId}'`)
+    this.name = 'WorkspacePinInvalidError'
+  }
+}
+
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -143,7 +154,8 @@ export class WorkspaceRegistry extends Service {
    * path is canonicalized through `fs.realpath`; a relative, nonexistent, or
    * non-directory path rejects. Repeated calls for the same canonical path
    * return the existing entity without changing its title.
-   * A newly created workspace is prepended to the durable registry order.
+   * A newly created workspace is prepended to the durable registry order
+   * above the other unpinned workspaces, and below the pinned group.
    * Different canonical paths may share a display title.
    * @param path - Existing directory to own, in a fully qualified path spelling.
    * @param title - Display title used only when a new record is created.
@@ -202,6 +214,10 @@ export class WorkspaceRegistry extends Service {
   /**
    * Move one workspace within the durable display order, DOM-insertBefore-like.
    * With an anchor it lands before that workspace; without one it appends.
+   * A move never changes which workspaces are pinned, so the committed order
+   * is re-split on the existing pin boundary: an anchor on the other side of
+   * it pins the target to the nearest edge of its own group instead of
+   * crossing. Grouping is a consequence of pinning, never a way to change it.
    * @param id - Workspace to move.
    * @param beforeId - Workspace anchor; omitted appends.
    * @returns the complete committed workspace order.
@@ -216,9 +232,52 @@ export class WorkspaceRegistry extends Service {
       if (beforeId === id) return state.workspaceIds
       const without = state.workspaceIds.filter(workspaceId => workspaceId !== id)
       const at = beforeId === undefined ? without.length : without.indexOf(beforeId)
-      const workspaceIds = [...without.slice(0, at), id, ...without.slice(at)]
+      const moved = [...without.slice(0, at), id, ...without.slice(at)]
+      const pinned = new Set(state.workspaceIds.slice(0, state.pinnedCount))
+      const workspaceIds = [
+        ...moved.filter(workspaceId => pinned.has(workspaceId)),
+        ...moved.filter(workspaceId => !pinned.has(workspaceId)),
+      ]
       if (sameIds(workspaceIds, state.workspaceIds)) return state.workspaceIds
       await this.setState({ ...state, workspaceIds })
+      return workspaceIds
+    })
+  }
+
+  /**
+   * The pinned workspaces in display order: the leading slice of the durable
+   * registry order, and always the head of {@link list}.
+   * @returns the pinned workspace ids, topmost first.
+   */
+  get pinnedWorkspaceIds(): readonly WorkspaceId[] {
+    const state = this.requireState()
+    return state.workspaceIds.slice(0, state.pinnedCount)
+  }
+
+  /**
+   * Pin or unpin one workspace durably. Pinning lifts the workspace to the top
+   * of the whole list; unpinning drops it to the top of the unpinned group, so
+   * neither direction depends on where it happened to sit. A request that
+   * matches the current state resolves without writing.
+   * @param id - Workspace whose pin changes.
+   * @param pinned - `true` to pin, `false` to unpin.
+   * @returns the complete committed workspace order.
+   */
+  setPinned(id: WorkspaceId, pinned: boolean): Promise<readonly WorkspaceId[]> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      const at = state.workspaceIds.indexOf(id)
+      if (at === -1) throw new WorkspacePinInvalidError(id)
+      const isPinned = at < state.pinnedCount
+      if (isPinned === pinned) return state.workspaceIds
+      const without = state.workspaceIds.filter(workspaceId => workspaceId !== id)
+      // Unpinning drops the workspace at the top of the unpinned group: the
+      // remaining pinned workspaces keep the head of the order unchanged.
+      const released = state.pinnedCount - 1
+      const workspaceIds = pinned
+        ? [id, ...without]
+        : [...without.slice(0, released), id, ...without.slice(released)]
+      await this.setState({ ...state, workspaceIds, pinnedCount: state.pinnedCount + (pinned ? 1 : -1) })
       return workspaceIds
     })
   }
@@ -250,6 +309,46 @@ export class WorkspaceRegistry extends Service {
       }
       const state = this.requireState()
       await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
+    })
+  }
+
+  /**
+   * The registry-global Session pin set, newest pin first. A pinned Session
+   * leads the group that already owns it — its Workspace section, or Ungrouped
+   * — and pinning never moves it between groups, so the set is not part of the
+   * one-owner accounting invariant.
+   * @returns the pinned session ids in pin order.
+   */
+  get pinnedSessionIds(): readonly SessionId[] {
+    return this.requireState().pinnedSessionIds
+  }
+
+  /**
+   * Pin or unpin one Session durably. Pinning lifts the Session to the head of
+   * the pin set, so the most recent pin leads its group; unpinning removes it
+   * and leaves the remaining pins in order. A request that matches the current
+   * state resolves without writing.
+   *
+   * Existence is deliberately not checked: a pin only ever orders a row the
+   * grouping surface already shows, a Session the surface no longer shows
+   * (archived, or belonging to a deleted Workspace) renders nowhere regardless
+   * of its pin, and unlike archiving a stale pin removes nothing the operator
+   * can still see. Refusing it would add a failure path with no user-visible
+   * difference.
+   * @param sessionId - Session whose pin changes.
+   * @param pinned - `true` to pin, `false` to unpin.
+   * @returns the complete committed pin set.
+   */
+  setSessionPinned(sessionId: SessionId, pinned: boolean): Promise<readonly SessionId[]> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      const isPinned = state.pinnedSessionIds.includes(sessionId)
+      if (isPinned === pinned) return state.pinnedSessionIds
+      const pinnedSessionIds = pinned
+        ? [sessionId, ...state.pinnedSessionIds]
+        : state.pinnedSessionIds.filter(candidate => candidate !== sessionId)
+      await this.setState({ ...state, pinnedSessionIds })
+      return pinnedSessionIds
     })
   }
 
@@ -327,9 +426,15 @@ export class WorkspaceRegistry extends Service {
 
     try {
       await this.setState({
+        ...state,
         initialized: true,
-        workspaceIds: [id, ...state.workspaceIds],
-        archivedSessionIds: state.archivedSessionIds,
+        // Above the other unpinned workspaces but below the pinned group: a new
+        // workspace has never been pinned, so it may not displace one that has.
+        workspaceIds: [
+          ...state.workspaceIds.slice(0, state.pinnedCount),
+          id,
+          ...state.workspaceIds.slice(state.pinnedCount),
+        ],
       })
     } catch (error) {
       this.entities.delete(id)
@@ -358,10 +463,15 @@ export class WorkspaceRegistry extends Service {
     const entity = this.entities.get(id)
     if (entity === undefined) return false
     const state = this.requireState()
+    const index = state.workspaceIds.indexOf(id)
     const nextState = {
       initialized: true,
       workspaceIds: state.workspaceIds.filter(workspaceId => workspaceId !== id),
       archivedSessionIds: state.archivedSessionIds,
+      pinnedSessionIds: state.pinnedSessionIds,
+      // Deleting a pinned workspace shrinks the pinned group with it; the
+      // remaining pinned workspaces stay at the head of the order.
+      pinnedCount: state.pinnedCount - (index < state.pinnedCount ? 1 : 0),
     }
     await this.setState({
       ...nextState,
@@ -415,11 +525,10 @@ export class WorkspaceRegistry extends Service {
       )
     }
     await this.requireTable().delete(pending.workspaceId)
-    await this.setState({
-      initialized: state.initialized,
-      workspaceIds: state.workspaceIds,
-      archivedSessionIds: state.archivedSessionIds,
-    })
+    // Clearing the marker is the point of this write; every other field is
+    // restated unchanged, including the Session pin set the marker never owned.
+    const { pendingMutation: _cleared, ...recovered } = state
+    await this.setState(recovered)
   }
 
   private async bootstrap(headers: readonly SessionHeader[]): Promise<void> {
@@ -489,7 +598,7 @@ export class WorkspaceRegistry extends Service {
 
     const groupRank = new Map(groups.map(group => [group.path, group.newestAt]))
     const priorRank = new Map(state.workspaceIds.map((id, index) => [id, index]))
-    const workspaceIds = [...table.entries()]
+    const ranked = [...table.entries()]
       .sort(([leftId, left], [rightId, right]) => {
         const leftTime = groupRank.get(left.path) ?? Date.parse(left.createdAt)
         const rightTime = groupRank.get(right.path) ?? Date.parse(right.createdAt)
@@ -500,10 +609,26 @@ export class WorkspaceRegistry extends Service {
       })
       .map(([id]) => id)
 
+    // The recency ranking above is about history, not about the operator's
+    // pins: re-deriving the order must not silently unpin a workspace.
+    const pinned = new Set(state.workspaceIds.slice(0, state.pinnedCount))
+    const workspaceIds = [
+      ...ranked.filter(id => pinned.has(id)),
+      ...ranked.filter(id => !pinned.has(id)),
+    ]
+
     if (!sameIds(state.workspaceIds, workspaceIds)) {
-      await this.setState({ initialized: false, workspaceIds, archivedSessionIds: state.archivedSessionIds })
+      await this.setState({
+        ...state,
+        initialized: false,
+        workspaceIds,
+      })
     }
-    await this.setState({ initialized: true, workspaceIds, archivedSessionIds: state.archivedSessionIds })
+    await this.setState({
+      ...state,
+      initialized: true,
+      workspaceIds,
+    })
   }
 
   private validateStoredState(state: WorkspaceDomainState): void {
@@ -517,6 +642,12 @@ export class WorkspaceRegistry extends Service {
         throw new Error(`workspace domain is inconsistent: registry order references missing workspace '${id}'`)
       }
       order.add(id)
+    }
+    if (state.pinnedCount > state.workspaceIds.length) {
+      throw new Error(
+        `workspace domain is inconsistent: pinned count ${state.pinnedCount} exceeds `
+        + `the ${state.workspaceIds.length} workspaces in registry order`,
+      )
     }
     if (state.initialized && order.size !== table.size) {
       const orphan = [...table.keys()].find(id => !order.has(id))

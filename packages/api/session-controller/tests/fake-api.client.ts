@@ -165,6 +165,8 @@ export class FakeApiClient {
   workspaceBaseline: Extract<WorkspaceFollowFrame, { type: 'baseline' }>['value'] = {
     items: [],
     archivedSessionIds: [],
+    pinnedWorkspaceIds: [],
+    pinnedSessionIds: [],
   }
   lastSearchSignal: AbortSignal | undefined
 
@@ -185,14 +187,31 @@ export class FakeApiClient {
   onWorkspaceDelete: (payload: unknown) => Promise<RemoteResult<{ deleted: true }>> =
     () => Promise.resolve(ok({ deleted: true }))
 
-  onWorkspaceInsertBefore: (payload: unknown) => Promise<RemoteResult<{ workspaceIds: WorkspaceId[] }>> =
-    () => Promise.resolve(ok({ workspaceIds: [] }))
+  onWorkspaceInsertBefore: (payload: unknown) => Promise<RemoteResult<{ workspaceIds: WorkspaceId[]; pinnedWorkspaceIds: WorkspaceId[] }>> =
+    () => Promise.resolve(ok({ workspaceIds: [], pinnedWorkspaceIds: [] }))
+
+  onWorkspaceSetPinned: (payload: unknown) => Promise<RemoteResult<{ workspaceIds: WorkspaceId[]; pinnedWorkspaceIds: WorkspaceId[] }>> =
+    payload => Promise.resolve(ok({
+      workspaceIds: [(payload as { workspaceId: WorkspaceId }).workspaceId],
+      pinnedWorkspaceIds: (payload as { pinned: boolean }).pinned
+        ? [(payload as { workspaceId: WorkspaceId }).workspaceId]
+        : [],
+    }))
 
   onWorkspaceInsertSessionBefore: (payload: unknown) => Promise<RemoteResult<{ workspace: WorkspaceView }>> =
     () => Promise.resolve(ok({ workspace: fakeWorkspace('fk-ws') }))
 
   onWorkspaceArchiveSession: (payload: unknown) => Promise<RemoteResult<{ archivedSessionIds: SessionId[] }>> =
     payload => Promise.resolve(ok({ archivedSessionIds: [(payload as { sessionId: SessionId }).sessionId] }))
+
+  onWorkspaceSetSessionPinned: (
+    payload: unknown,
+  ) => Promise<RemoteResult<{ pinnedSessionIds: SessionId[] }>> =
+    payload => Promise.resolve(ok({
+      pinnedSessionIds: (payload as { pinned: boolean }).pinned
+        ? [(payload as { sessionId: SessionId }).sessionId]
+        : [],
+    }))
 
   /** Remote namespaces bound to this fake's programmable unary slots and stream pumps. */
   sessionRemotes(): RuntimeRemotes {
@@ -262,6 +281,11 @@ export class FakeApiClient {
           payload,
           this.onWorkspaceInsertBefore(payload),
         ),
+        setPinned: payload => this.record(
+          'workspace.setPinned',
+          payload,
+          this.onWorkspaceSetPinned(payload),
+        ),
         insertSessionBefore: payload => this.record(
           'workspace.insertSessionBefore',
           payload,
@@ -271,6 +295,11 @@ export class FakeApiClient {
           'workspace.archiveSession',
           payload,
           this.onWorkspaceArchiveSession(payload),
+        ),
+        setSessionPinned: payload => this.record(
+          'workspace.setSessionPinned',
+          payload,
+          this.onWorkspaceSetSessionPinned(payload),
         ),
         follow: signal => this.openWorkspace(signal),
       },

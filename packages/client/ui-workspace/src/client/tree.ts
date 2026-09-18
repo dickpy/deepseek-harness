@@ -21,6 +21,13 @@ import {
 export const UNGROUPED_KEY = ''
 
 /**
+ * Group key for the leading pinned section. Pinned Sessions live here instead
+ * of in their owning group, so one Session is rendered by exactly one section
+ * and a folded Workspace cannot hide a pin.
+ */
+export const PINNED_KEY = '__pinned__'
+
+/**
  * Resolve the Workspace browser group that owns one Session.
  * @param workspaces - authoritative Workspace membership.
  * @param sessionId - Session whose browser group is required.
@@ -52,6 +59,8 @@ export interface SessionNode {
   runningSubagentCount: number
   /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
   completed: boolean
+  /** The registry-global pin set holds this Session; it leads its group. */
+  pinned: boolean
   /** The current list projection contains at least one active Schedule record. */
   hasActiveSchedule: boolean
   updatedAt: number
@@ -64,6 +73,11 @@ export type SessionOrderBy = 'manual' | 'updated'
 export interface GroupNode {
   /** Group key: the workspace id or {@link UNGROUPED_KEY}. */
   key: string
+  /**
+   * Which header this section draws: the pinned section leads the list, the
+   * ungrouped bucket trails it, and a Workspace is everything between.
+   */
+  kind: 'pinned' | 'workspace' | 'ungrouped'
   /** Backing Workspace id; absent only for the ungrouped bucket. */
   workspaceId: WorkspaceId | undefined
   cwd: string | undefined
@@ -111,6 +125,7 @@ export interface TreeView {
 
 interface Group {
   key: string
+  kind: GroupNode['kind']
   workspaceId: WorkspaceId | undefined
   cwd: string | undefined
   createdAt: number | undefined
@@ -134,6 +149,37 @@ export function workspaceLabel(cwd: string | undefined): string {
 function byRecency(a: SessionSummary, b: SessionSummary): number {
   if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt
   return a.id < b.id ? -1 : 1
+}
+
+/** Rank of each pinned Session inside the registry-global pin set; lower leads. */
+function pinRanks(pinnedSessionIds: readonly SessionId[]): ReadonlyMap<SessionId, number> {
+  return new Map(pinnedSessionIds.map((id, index) => [id, index]))
+}
+
+/**
+ * Lift pinned rows to the head of one ordered run, keeping the pin set's own
+ * order among them and the run's order among the rest. A pin is therefore a
+ * membership fact layered over whatever order the run already has: it reorders
+ * no unpinned row and never crosses a group boundary, because the caller
+ * passes one run at a time.
+ *
+ * Exported for the flat list, whose rows are re-ordered by the browser-local
+ * account after the derivation and so need the lift applied once more.
+ * @param rows - one group's rows, or the whole flat list, in its own order.
+ * @param pinnedSessionIds - registry-global pin set, newest pin first.
+ * @returns the same rows with every pinned row first.
+ */
+export function liftPinnedRows<T extends { readonly id: SessionId }>(
+  rows: readonly T[],
+  pinnedSessionIds: readonly SessionId[],
+): T[] {
+  const ranks = pinRanks(pinnedSessionIds)
+  if (ranks.size === 0) return [...rows]
+  const pinned = rows.filter(row => ranks.has(row.id))
+  if (pinned.length === 0) return [...rows]
+  pinned.sort((left, right) =>
+    (ranks.get(left.id) ?? 0) - (ranks.get(right.id) ?? 0))
+  return [...pinned, ...rows.filter(row => !ranks.has(row.id))]
 }
 
 /**
@@ -165,6 +211,7 @@ function hasActiveSchedule(session: SessionSummary): boolean {
 /** Build one group without projecting session lineage into presentation. */
 function buildGroup(
   key: string,
+  kind: GroupNode['kind'],
   workspaceId: WorkspaceId | undefined,
   cwd: string | undefined,
   createdAt: number | undefined,
@@ -176,7 +223,7 @@ function buildGroup(
   // Real Workspace order comes from sessionIds. Ungrouped falls back to
   // recency until the browser supplies its persisted local order.
   if (order === 'recency') sessions.sort(byRecency)
-  return { key, workspaceId, cwd, createdAt, label, sessions }
+  return { key, kind, workspaceId, cwd, createdAt, label, sessions }
 }
 
 /** Apply a stored Ungrouped order and append newly loose Sessions by recency. */
@@ -202,26 +249,46 @@ function orderedUngrouped(members: readonly SessionSummary[], stored: readonly s
  * order, with members resolved from sessionIds in their stored order. Sessions
  * outside every Workspace trail in the browser-local Ungrouped order, which
  * falls back to recency before that order is initialized.
+ *
+ * Pinned Sessions lead as their own section and are claimed there, so a
+ * Workspace group and the Ungrouped bucket render only unpinned rows: a pin
+ * never duplicates a row, and folding a Workspace cannot hide one.
  */
 function groupByWorkspace(
   list: SessionListState,
   workspaces: readonly WorkspaceView[],
   archived: ReadonlySet<SessionId>,
+  pinnedSessionIds: readonly SessionId[],
   ungroupedOrder: readonly string[] | undefined,
 ): Group[] {
   const groups: Group[] = []
   const accounted = new Set<SessionId>()
+  const pinned: SessionSummary[] = []
+  for (const id of pinnedSessionIds) {
+    const summary = list.byId[id]
+    if (summary === undefined || !sessionVisible(summary, list.current, archived)) continue
+    pinned.push(summary)
+    accounted.add(id)
+  }
+  if (pinned.length > 0) {
+    // Pin order is the Host's, so the section preserves it verbatim rather
+    // than sorting: the newest pin leads.
+    groups.push(buildGroup(PINNED_KEY, 'pinned', undefined, undefined, undefined, '', pinned, 'account'))
+  }
   for (const workspace of workspaces) {
     const members: SessionSummary[] = []
     for (const id of workspace.sessionIds) {
       const summary = list.byId[id]
       if (summary === undefined) continue // account may lead the list pull; the row appears when the summary lands
+      if (accounted.has(id)) continue
+      // Only an unclaimed id counts as accounted: a pinned Session already
+      // rendered above must not reappear here or under Ungrouped.
       accounted.add(id)
       if (!sessionVisible(summary, list.current, archived)) continue
       members.push(summary)
     }
     groups.push(buildGroup(
-      workspace.workspaceId, workspace.workspaceId, workspace.path,
+      workspace.workspaceId, 'workspace', workspace.workspaceId, workspace.path,
       Date.parse(workspace.createdAt), workspace.title, members, 'account',
     ))
   }
@@ -232,6 +299,7 @@ function groupByWorkspace(
   if (stray.length > 0) {
     groups.push(buildGroup(
       UNGROUPED_KEY,
+      'ungrouped',
       undefined,
       undefined,
       undefined,
@@ -259,12 +327,14 @@ function sessionNode(
   s: SessionSummary,
   descendants: ReadonlyMap<SessionId, SubagentDescendantSummary>,
   pendingInteractions: SessionPendingInteractions,
+  pinned: ReadonlyMap<SessionId, number>,
 ): SessionNode {
   const pendingInteraction = visiblePendingKind(pendingInteractions.get(s.id)?.kind)
   return {
     id: s.id,
     title: sessionTitle(s),
     blank: s.blank,
+    pinned: pinned.has(s.id),
     running: s.running,
     runningSubagentCount: descendants.get(s.id)?.runningCount ?? 0,
     completed: s.completed === true,
@@ -285,6 +355,8 @@ function sessionNode(
  * @param list - sessions list snapshot (`current` feeds containsCurrent).
  * @param workspaces - real workspaces in stable Host order.
  * @param archivedSessionIds - registry-global archive set.
+ * @param pinnedSessionIds - registry-global pin set; members lead the list as
+ * their own section and are not repeated under their Workspace.
  * @param pendingInteractions - pending UI interactions by Session.
  * @param view - local expansion arrays.
  * @returns group sections in render order.
@@ -293,20 +365,25 @@ export function deriveGroups(
   list: SessionListState,
   workspaces: readonly WorkspaceView[],
   archivedSessionIds: readonly SessionId[],
+  pinnedSessionIds: readonly SessionId[],
   pendingInteractions: SessionPendingInteractions,
   view: TreeView,
 ): GroupNode[] {
   const archived = new Set(archivedSessionIds)
+  const pinned = pinRanks(pinnedSessionIds)
   const expandedGroups = new Set(view.expandedGroups)
   const descendants = indexSubagentDescendants(list.byId)
   const currentGroup = list.current === undefined
     ? undefined
     : owningGroupKey(workspaces, list.current)
   const groups: GroupNode[] = []
-  for (const g of groupByWorkspace(list, workspaces, archived, view.ungroupedOrder)) {
-    const expanded = expandedGroups.has(g.key)
+  for (const g of groupByWorkspace(list, workspaces, archived, pinnedSessionIds, view.ungroupedOrder)) {
+    // The pinned section always shows: its rows are the ones the operator
+    // chose to keep in sight, so folding it could only hide a deliberate pin.
+    const expanded = g.kind === 'pinned' || expandedGroups.has(g.key)
     groups.push({
       key: g.key,
+      kind: g.kind,
       workspaceId: g.workspaceId,
       cwd: g.cwd,
       createdAt: g.createdAt,
@@ -315,7 +392,7 @@ export function deriveGroups(
       expanded,
       containsCurrent: g.key === currentGroup,
       sessions: expanded
-        ? g.sessions.map(session => sessionNode(session, descendants, pendingInteractions))
+        ? g.sessions.map(session => sessionNode(session, descendants, pendingInteractions, pinned))
         : [],
     })
   }
@@ -329,15 +406,18 @@ export function deriveGroups(
  * (see {@link deriveSearchResults}).
  * @param list - sessions list snapshot.
  * @param archivedSessionIds - registry-global archive set.
+ * @param pinnedSessionIds - registry-global pin set; members lead the list.
  * @param pendingInteractions - pending UI interactions by Session.
  * @returns flat rows in render order.
  */
 export function deriveFlat(
   list: SessionListState,
   archivedSessionIds: readonly SessionId[],
+  pinnedSessionIds: readonly SessionId[],
   pendingInteractions: SessionPendingInteractions,
 ): SessionNode[] {
   const archived = new Set(archivedSessionIds)
+  const pinned = pinRanks(pinnedSessionIds)
   const descendants = indexSubagentDescendants(list.byId)
   const rows: SessionSummary[] = []
   for (const id of list.ids) {
@@ -346,7 +426,8 @@ export function deriveFlat(
     rows.push(s)
   }
   rows.sort(byRecency)
-  return rows.map(session => sessionNode(session, descendants, pendingInteractions))
+  return liftPinnedRows(rows, pinnedSessionIds)
+    .map(session => sessionNode(session, descendants, pendingInteractions, pinned))
 }
 
 /**

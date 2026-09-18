@@ -58,10 +58,24 @@ export interface IWorkspaces {
    */
   insertBefore(workspaceId: WorkspaceId, beforeWorkspaceId?: WorkspaceId): Promise<void>
   /**
+   * Pin a Workspace to the top of the list, or release it to the top of the
+   * unpinned group.
+   * @param workspaceId - target Workspace.
+   * @param pinned - `true` to pin, `false` to unpin.
+   */
+  setPinned(workspaceId: WorkspaceId, pinned: boolean): Promise<void>
+  /**
    * Archive a Session from Workspace grouping surfaces.
    * @param sessionId - Session to archive.
    */
   archiveSession(sessionId: SessionId): Promise<void>
+  /**
+   * Pin a Session to the head of the group that owns it, or release it. The
+   * Session keeps its Workspace membership either way.
+   * @param sessionId - target Session.
+   * @param pinned - `true` to pin, `false` to unpin.
+   */
+  setSessionPinned(sessionId: SessionId, pinned: boolean): Promise<void>
   /**
    * Move a Session within one Workspace account.
    * @param workspaceId - owning Workspace.
@@ -111,9 +125,19 @@ export class WorkspaceController extends Service implements IWorkspaces {
     if (!result.ok) throw commandError('reorder', result.error)
   }
 
+  async setPinned(workspaceId: WorkspaceId, pinned: boolean): Promise<void> {
+    const result = await this.model.setPinned(workspaceId, pinned)
+    if (!result.ok) throw commandError(pinned ? 'pin' : 'unpin', result.error)
+  }
+
   async archiveSession(sessionId: SessionId): Promise<void> {
     const result = await this.model.archiveSession(sessionId)
     if (!result.ok) throw commandError('session archive', result.error)
+  }
+
+  async setSessionPinned(sessionId: SessionId, pinned: boolean): Promise<void> {
+    const result = await this.model.setSessionPinned(sessionId, pinned)
+    if (!result.ok) throw commandError(pinned ? 'session pin' : 'session unpin', result.error)
   }
 
   async insertSessionBefore(

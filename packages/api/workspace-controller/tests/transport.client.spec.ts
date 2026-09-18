@@ -58,6 +58,7 @@ function accepts(overrides: Partial<WorkspaceFollowSink> = {}): WorkspaceFollowS
     removeView: ignore,
     replaceOrder: ignore,
     replaceArchived: ignore,
+    replacePinned: ignore,
     ...overrides,
   }
 }
@@ -151,7 +152,7 @@ describe('Workspace state stream', () => {
     const increments: WorkspaceFollowFrame[] = [
       { type: 'upsert', workspace: view },
       { type: 'remove', workspaceId: view.workspaceId },
-      { type: 'order', workspaceIds: [view.workspaceId] },
+      { type: 'order', workspaceIds: [view.workspaceId], pinnedWorkspaceIds: [view.workspaceId] },
       { type: 'archived', archivedSessionIds: [sid('session-one')] },
     ]
     mock.stream(FOLLOW, openStream([opening, ...increments]))
@@ -172,7 +173,7 @@ describe('Workspace state stream', () => {
     expect(replaceBaseline).toHaveBeenCalledWith(opening.value)
     expect(upsertView).toHaveBeenCalledWith(view)
     expect(removeView).toHaveBeenCalledWith(view.workspaceId)
-    expect(replaceOrder).toHaveBeenCalledWith([view.workspaceId])
+    expect(replaceOrder).toHaveBeenCalledWith([view.workspaceId], [view.workspaceId])
     expect(replaceArchived).toHaveBeenCalledWith(['session-one'])
     await stream.dispose()
     expect(streamStates(mock)).toEqual(['cancelled'])
@@ -309,7 +310,9 @@ describe('WorkspaceController', () => {
   it('publishes the model source and exposes successful Workspace commands', async ({ mock, start }) => {
     const { remote, client } = await gatewayClient(mock, start)
     const model = new ClientWorkspaceModel(remote.workspace)
-    model.replaceBaseline({ items: [workspace('one')], archivedSessionIds: [] })
+    model.replaceBaseline({
+      items: [workspace('one')], archivedSessionIds: [], pinnedWorkspaceIds: [], pinnedSessionIds: [],
+    })
     const controller = new WorkspaceController(client.ctx, model)
 
     expect(controller.list).toBe(model)
@@ -321,6 +324,7 @@ describe('WorkspaceController', () => {
       sessionIds: ['session'],
     })
     await expect(controller.archiveSession(sid('session'))).resolves.toBeUndefined()
+    await expect(controller.setSessionPinned(sid('session'), true)).resolves.toBeUndefined()
     await expect(controller.delete(wid('one'))).resolves.toBeUndefined()
     // Each command crosses the wire as one positional request object.
     expect(mock.log.requests('workspace/create')).toEqual([{ path: '/work/created' }])

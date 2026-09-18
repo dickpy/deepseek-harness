@@ -6,6 +6,7 @@ import {
   WorkspaceId,
   WorkspaceMoveInvalidError,
   WorkspaceOrderInvalidError,
+  WorkspacePinInvalidError,
   WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
@@ -20,7 +21,10 @@ import type {
   WorkspaceInsertBeforeRequest,
   WorkspaceInsertSessionBeforeRequest,
   WorkspaceOrderValue,
+  WorkspacePinSessionValue,
   WorkspaceRenameRequest,
+  WorkspaceSetSessionPinnedRequest,
+  WorkspaceSetPinnedRequest,
   WorkspaceValue,
 } from './types.ts'
 
@@ -111,10 +115,35 @@ export class WorkspaceCommands {
           ? undefined
           : WorkspaceId(request.beforeWorkspaceId),
       )
-      return { workspaceIds: [...workspaceIds] }
+      return this.order(workspaceIds)
     } catch (error) {
       if (!(error instanceof WorkspaceOrderInvalidError)) throw error
       throw workspaceNotFound(error.workspaceId)
+    }
+  }
+
+  /**
+   * Pin one Workspace to the top of the list, or release it.
+   * @param request - Workspace identity and the requested pin state.
+   * @returns the complete resulting Workspace order.
+   */
+  async setPinned(request: WorkspaceSetPinnedRequest): Promise<WorkspaceOrderValue> {
+    try {
+      const workspaceIds = await this.ctx.workspaceRegistry.setPinned(
+        WorkspaceId(request.workspaceId),
+        request.pinned,
+      )
+      return this.order(workspaceIds)
+    } catch (error) {
+      if (!(error instanceof WorkspacePinInvalidError)) throw error
+      throw workspaceNotFound(error.workspaceId)
+    }
+  }
+
+  private order(workspaceIds: readonly WorkspaceId[]): WorkspaceOrderValue {
+    return {
+      workspaceIds: [...workspaceIds],
+      pinnedWorkspaceIds: [...this.ctx.workspaceRegistry.pinnedWorkspaceIds],
     }
   }
 
@@ -158,6 +187,16 @@ export class WorkspaceCommands {
       throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId }, { cause: error })
     }
     return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
+  }
+
+  /**
+   * Pin one Session to the head of the group that owns it, or release it.
+   * @param request - Session identity and the requested pin state.
+   * @returns the complete resulting pin set.
+   */
+  async setSessionPinned(request: WorkspaceSetSessionPinnedRequest): Promise<WorkspacePinSessionValue> {
+    await this.ctx.workspaceRegistry.setSessionPinned(request.sessionId, request.pinned)
+    return { pinnedSessionIds: [...this.ctx.workspaceRegistry.pinnedSessionIds] }
   }
 
   private requireWorkspace(workspaceId: WorkspaceId): Workspace {

@@ -87,9 +87,22 @@ export interface WorkspaceInsertBeforeRequest {
   readonly beforeWorkspaceId?: WorkspaceId
 }
 
-/** Complete Workspace registry order after a mutation. */
+/**
+ * Complete Workspace registry order after a mutation, with the pinned head of
+ * it. Pinning is not a per-row property: the pinned workspaces are exactly the
+ * leading `pinnedWorkspaceIds` of `workspaceIds`, so one ordered array answers
+ * both display order and pin state, and the two can never disagree.
+ */
 export interface WorkspaceOrderValue {
   readonly workspaceIds: readonly WorkspaceId[]
+  readonly pinnedWorkspaceIds: readonly WorkspaceId[]
+}
+
+/** Workspace pin mutation. */
+export interface WorkspaceSetPinnedRequest {
+  readonly workspaceId: WorkspaceId
+  /** `true` lifts the Workspace to the top of the list, `false` drops it to the top of the unpinned group. */
+  readonly pinned: boolean
 }
 
 /** DOM-insertBefore-like Session membership order mutation. */
@@ -109,18 +122,38 @@ export interface WorkspaceArchiveValue {
   readonly archivedSessionIds: readonly SessionId[]
 }
 
+/**
+ * Session pin mutation. A pin orders a Session inside the group that already
+ * owns it; it never moves the Session between Workspaces.
+ */
+export interface WorkspaceSetSessionPinnedRequest {
+  readonly sessionId: SessionId
+  /** `true` lifts the Session to the head of its group, `false` releases it in place. */
+  readonly pinned: boolean
+}
+
+/** Complete pinned Session set after a mutation, newest pin first. */
+export interface WorkspacePinSessionValue {
+  readonly pinnedSessionIds: readonly SessionId[]
+}
+
 /** Complete reconnect baseline for Workspace browser state. */
 export interface WorkspaceBaseline {
   readonly items: readonly WorkspaceView[]
   readonly archivedSessionIds: readonly SessionId[]
+  /** Pinned Workspaces in display order: the leading prefix of `items`. */
+  readonly pinnedWorkspaceIds: readonly WorkspaceId[]
+  /** Pinned Sessions in pin order, newest first; membership is global, not per Workspace. */
+  readonly pinnedSessionIds: readonly SessionId[]
 }
 
 /** One ordered Workspace change after a generation's baseline. */
 export type WorkspaceFollowIncrement =
   | { readonly type: 'upsert'; readonly workspace: WorkspaceView }
   | { readonly type: 'remove'; readonly workspaceId: WorkspaceId }
-  | { readonly type: 'order'; readonly workspaceIds: readonly WorkspaceId[] }
+  | { readonly type: 'order'; readonly workspaceIds: readonly WorkspaceId[]; readonly pinnedWorkspaceIds: readonly WorkspaceId[] }
   | { readonly type: 'archived'; readonly archivedSessionIds: readonly SessionId[] }
+  | { readonly type: 'pinned'; readonly pinnedSessionIds: readonly SessionId[] }
 
 /** Workspace state stream; every generation starts with exactly one baseline. */
 export type WorkspaceFollowFrame =

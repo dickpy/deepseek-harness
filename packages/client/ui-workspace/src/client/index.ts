@@ -125,7 +125,13 @@ export function apply(ctx: Context): void {
     insertWorkspaceBefore: async (workspaceId, beforeWorkspaceId) => {
       await workspaces.insertBefore(workspaceId, beforeWorkspaceId)
     },
+    setWorkspacePinned: async (workspaceId, pinned) => {
+      await workspaces.setPinned(workspaceId, pinned)
+    },
     archiveSession: async (sessionId) => { await uiWorkspace.archiveSession(sessionId) },
+    setSessionPinned: async (sessionId, pinned) => {
+      await workspaces.setSessionPinned(sessionId, pinned)
+    },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {
       await workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
     },

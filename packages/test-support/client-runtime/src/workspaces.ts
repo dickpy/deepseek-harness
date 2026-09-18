@@ -127,6 +127,27 @@ export class TestWorkspaces implements IWorkspaces {
   }
 
   /**
+   * Pin or unpin a Workspace (recorded). The default mirrors the production
+   * face's observable effect: the id joins or leaves the snapshot's pinned
+   * prefix, which is what the browser reads to choose its menu verb.
+   * @param workspaceId - Workspace whose pin changes.
+   * @param pinned - `true` to pin, `false` to unpin.
+   */
+  async setPinned(workspaceId: WorkspaceId, pinned: boolean): Promise<void> {
+    this.calls.push({ method: 'setPinned', args: [workspaceId, pinned] })
+    const stub = this.stubs.get('setPinned')
+    if (stub !== undefined) {
+      await (stub(workspaceId, pinned) as Promise<void>)
+      return
+    }
+    await this.update((draft) => {
+      draft.pinnedWorkspaceIds = pinned
+        ? [workspaceId, ...draft.pinnedWorkspaceIds.filter(id => id !== workspaceId)]
+        : draft.pinnedWorkspaceIds.filter(id => id !== workspaceId)
+    })
+  }
+
+  /**
    * Archive a session (recorded). The default mirrors the production face's
    * observable effect: the id joins the list state's archive set.
    * @param sessionId - session to archive.
@@ -140,6 +161,28 @@ export class TestWorkspaces implements IWorkspaces {
     }
     await this.update((draft) => {
       draft.archivedSessionIds = [...draft.archivedSessionIds, sessionId]
+    })
+  }
+
+  /**
+   * Pin or unpin a session (recorded). The default mirrors the production
+   * face's observable effect: the id joins or leaves the snapshot's pin set,
+   * newest first, which is what the browser reads to choose its menu verb and
+   * to lead each group.
+   * @param sessionId - session whose pin changes.
+   * @param pinned - `true` to pin, `false` to unpin.
+   */
+  async setSessionPinned(sessionId: SessionId, pinned: boolean): Promise<void> {
+    this.calls.push({ method: 'setSessionPinned', args: [sessionId, pinned] })
+    const stub = this.stubs.get('setSessionPinned')
+    if (stub !== undefined) {
+      await (stub(sessionId, pinned) as Promise<void>)
+      return
+    }
+    await this.update((draft) => {
+      draft.pinnedSessionIds = pinned
+        ? [sessionId, ...draft.pinnedSessionIds.filter(id => id !== sessionId)]
+        : draft.pinnedSessionIds.filter(id => id !== sessionId)
     })
   }
 }

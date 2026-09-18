@@ -16,6 +16,7 @@ import WorkspaceRegistry, {
   WorkspaceId,
   WorkspaceMoveInvalidError,
   WorkspaceOrderInvalidError,
+  WorkspacePinInvalidError,
 } from '../src/index.ts'
 import type { WorkspaceDomainState, WorkspaceRecord } from '../src/index.ts'
 import { defaultWorkspaceTitle, fullyQualifiedWorkspacePath } from '../src/paths.ts'
@@ -145,11 +146,11 @@ function record(path: string, sessionIds: string[], createdAt = '2026-07-24T00:0
 }
 
 /**
- * Media written before archivedSessionIds existed omit the field; keeping the
- * fixtures in that shape continuously proves the schema default upgrades them.
+ * Media written before a defaulted field existed omit it; keeping the fixtures
+ * in that shape continuously proves the schema defaults upgrade them.
  */
-type StoredDomainState = Omit<WorkspaceDomainState, 'archivedSessionIds'>
-  & Partial<Pick<WorkspaceDomainState, 'archivedSessionIds'>>
+type StoredDomainState = Omit<WorkspaceDomainState, 'archivedSessionIds' | 'pinnedSessionIds' | 'pinnedCount'>
+  & Partial<Pick<WorkspaceDomainState, 'archivedSessionIds' | 'pinnedSessionIds' | 'pinnedCount'>>
 
 function storedPool(
   entries: Array<[string, WorkspaceRecord]>,
@@ -201,7 +202,9 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     await fiber.await()
     expect(ctx.workspaceRegistry.list()).toEqual([])
     expect(list).toHaveBeenCalledTimes(1)
-    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(pool)).toEqual({
+      initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], pinnedCount: 0,
+    })
   })
 
   it('bootstraps once from list headers only, in workspace/session createdAt order', async () => {
@@ -235,6 +238,8 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
       initialized: true,
       workspaceIds: result.registry.list().map(workspace => workspace.id),
       archivedSessionIds: [],
+      pinnedSessionIds: [],
+      pinnedCount: 0,
     })
   })
 
@@ -263,7 +268,9 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     const second = await harness({ pool, sessions: [header('late', late, 100)] })
     expect(second.list).not.toHaveBeenCalled()
     expect(second.registry.list()).toEqual([])
-    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(pool)).toEqual({
+      initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], pinnedCount: 0,
+    })
   })
 
   it('reuses partial records after a bootstrap record write fails', async () => {
@@ -517,7 +524,9 @@ describe('WorkspaceRegistry create and lookup', () => {
     await expect(result.registry.delete(workspace.id)).resolves.toBe(false)
     expect(result.registry.get(workspace.id)).toBeUndefined()
     expect(result.registry.list()).toEqual([])
-    expect(storedState(result.pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(result.pool)).toEqual({
+      initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], pinnedCount: 0,
+    })
     expect(result.pool.media.get('workspace')!.tables.get('workspaces')!.has(workspace.id)).toBe(false)
     await expect(realpath(dir)).resolves.toBe(dir)
     expect(result.list).toHaveBeenCalledTimes(1)
@@ -561,6 +570,8 @@ describe('WorkspaceRegistry create and lookup', () => {
       initialized: true,
       workspaceIds: [],
       archivedSessionIds: [],
+      pinnedSessionIds: [],
+      pinnedCount: 0,
       pendingMutation: { operation: 'delete', workspaceId: workspace.id },
     })
     const reregistered = await first.registry.create(dir)
@@ -569,6 +580,8 @@ describe('WorkspaceRegistry create and lookup', () => {
       initialized: true,
       workspaceIds: [reregistered.id],
       archivedSessionIds: [],
+      pinnedSessionIds: [],
+      pinnedCount: 0,
     })
     await first.fiber.dispose()
 
@@ -631,7 +644,6 @@ describe('Workspace registry ordering', () => {
     const first = await result.registry.create(firstDir)
     const second = await result.registry.create(secondDir)
     const written = result.changes.length
-
     await result.registry.insertBefore(second.id, second.id)
     await result.registry.insertBefore(second.id, first.id)
     await result.registry.insertBefore(first.id)
@@ -643,6 +655,166 @@ describe('Workspace registry ordering', () => {
     await expect(result.registry.insertBefore(second.id, WorkspaceId('missing-anchor')))
       .rejects.toMatchObject({ workspaceId: 'missing-anchor' })
     expect(result.changes).toHaveLength(written)
+  })
+})
+
+describe('Workspace registry pinning', () => {
+  it('leads with the newest Session pin, releases one, and survives a restart', async () => {
+    const result = await harness()
+    expect(result.registry.pinnedSessionIds).toEqual([])
+
+    await expect(result.registry.setSessionPinned(SessionId('first'), true))
+      .resolves.toEqual([SessionId('first')])
+    // The most recent pin leads every group its Session belongs to.
+    await expect(result.registry.setSessionPinned(SessionId('second'), true))
+      .resolves.toEqual([SessionId('second'), SessionId('first')])
+    expect(storedState(result.pool).pinnedSessionIds)
+      .toEqual([SessionId('second'), SessionId('first')])
+
+    // A request that matches the committed set writes nothing.
+    const writes = result.changes.length
+    await expect(result.registry.setSessionPinned(SessionId('second'), true))
+      .resolves.toEqual([SessionId('second'), SessionId('first')])
+    expect(result.changes).toHaveLength(writes)
+
+    await expect(result.registry.setSessionPinned(SessionId('second'), false))
+      .resolves.toEqual([SessionId('first')])
+    // Releasing an id that is not pinned is an idempotent no-op: a pin removes
+    // nothing the operator can still see, so it needs no existence check.
+    await expect(result.registry.setSessionPinned(SessionId('ghost'), false))
+      .resolves.toEqual([SessionId('first')])
+
+    const restarted = await harness({ pool: result.pool })
+    expect(restarted.registry.pinnedSessionIds).toEqual([SessionId('first')])
+  })
+
+  it('keeps Session pins independent of the archive set and of a deleted Workspace', async () => {
+    const dir = await makeDir('pin-session-workspace')
+    const result = await harness({ sessions: [header('pinned', dir, 100)] })
+    const workspace = await result.registry.create(dir)
+    await result.registry.setSessionPinned(SessionId('pinned'), true)
+
+    // Archiving hides the row without touching its pin, so unarchiving restores
+    // the place the pin already claims.
+    await result.registry.archiveSession(SessionId('pinned'))
+    expect(result.registry.pinnedSessionIds).toEqual([SessionId('pinned')])
+
+    // Deleting the Workspace leaves its Session pinned; it now leads Ungrouped.
+    await expect(result.registry.delete(workspace.id)).resolves.toBe(true)
+    expect(result.registry.pinnedSessionIds).toEqual([SessionId('pinned')])
+  })
+
+  it('lifts a pinned workspace to the top, drops it to the top of the unpinned group, and survives a restart', async () => {
+    const firstDir = await makeDir('pin-first')
+    const secondDir = await makeDir('pin-second')
+    const thirdDir = await makeDir('pin-third')
+    const result = await harness()
+    const first = await result.registry.create(firstDir)
+    const second = await result.registry.create(secondDir)
+    const third = await result.registry.create(thirdDir)
+    expect(result.registry.list().map(item => item.id)).toEqual([third.id, second.id, first.id])
+    expect(result.registry.pinnedWorkspaceIds).toEqual([])
+
+    // Pinning lifts to the very top regardless of where the row sat.
+    await expect(result.registry.setPinned(first.id, true))
+      .resolves.toEqual([first.id, third.id, second.id])
+    expect(result.registry.pinnedWorkspaceIds).toEqual([first.id])
+    await expect(result.registry.setPinned(third.id, true))
+      .resolves.toEqual([third.id, first.id, second.id])
+    expect(result.registry.pinnedWorkspaceIds).toEqual([third.id, first.id])
+    expect(storedState(result.pool).pinnedCount).toBe(2)
+
+    // Unpinning drops to the head of the unpinned group, not to its old slot.
+    await expect(result.registry.setPinned(third.id, false))
+      .resolves.toEqual([first.id, third.id, second.id])
+    expect(result.registry.pinnedWorkspaceIds).toEqual([first.id])
+    expect(storedState(result.pool).pinnedCount).toBe(1)
+
+    const restarted = await harness({ pool: result.pool })
+    expect(restarted.registry.list().map(item => item.id)).toEqual([first.id, third.id, second.id])
+    expect(restarted.registry.pinnedWorkspaceIds).toEqual([first.id])
+  })
+
+  it('keeps a new workspace below the pinned group and a removal inside it', async () => {
+    const firstDir = await makeDir('pin-boundary-first')
+    const secondDir = await makeDir('pin-boundary-second')
+    const addedDir = await makeDir('pin-boundary-added')
+    const result = await harness()
+    const first = await result.registry.create(firstDir)
+    const second = await result.registry.create(secondDir)
+    await result.registry.setPinned(second.id, true)
+    expect(result.registry.list().map(item => item.id)).toEqual([second.id, first.id])
+
+    // A workspace that has never been pinned may not displace one that has.
+    const added = await result.registry.create(addedDir)
+    expect(result.registry.list().map(item => item.id)).toEqual([second.id, added.id, first.id])
+    expect(result.registry.pinnedWorkspaceIds).toEqual([second.id])
+
+    // Deleting a pinned workspace shrinks the prefix with it.
+    await expect(result.registry.delete(second.id)).resolves.toBe(true)
+    expect(result.registry.list().map(item => item.id)).toEqual([added.id, first.id])
+    expect(result.registry.pinnedWorkspaceIds).toEqual([])
+    expect(storedState(result.pool).pinnedCount).toBe(0)
+
+    // Deleting an unpinned workspace leaves the prefix alone.
+    await result.registry.setPinned(added.id, true)
+    await expect(result.registry.delete(first.id)).resolves.toBe(true)
+    expect(result.registry.pinnedWorkspaceIds).toEqual([added.id])
+    expect(result.registry.list().map(item => item.id)).toEqual([added.id])
+  })
+
+  it('treats a move as reordering within a group and never as a change of membership', async () => {
+    const firstDir = await makeDir('pin-move-first')
+    const secondDir = await makeDir('pin-move-second')
+    const thirdDir = await makeDir('pin-move-third')
+    const result = await harness()
+    const first = await result.registry.create(firstDir)
+    const second = await result.registry.create(secondDir)
+    const third = await result.registry.create(thirdDir)
+    await result.registry.setPinned(second.id, true)
+    expect(result.registry.list().map(item => item.id)).toEqual([second.id, third.id, first.id])
+
+    // Dropping an unpinned row above a pinned one parks it at the top of its own group.
+    await expect(result.registry.insertBefore(first.id, second.id))
+      .resolves.toEqual([second.id, first.id, third.id])
+    expect(result.registry.pinnedWorkspaceIds).toEqual([second.id])
+
+    // Dropping a pinned row below an unpinned one parks it at the bottom of its own group.
+    await expect(result.registry.insertBefore(second.id, third.id))
+      .resolves.toEqual([second.id, first.id, third.id])
+    expect(result.registry.pinnedWorkspaceIds).toEqual([second.id])
+
+    // Both anchors inside one group reorder it normally.
+    await result.registry.setPinned(first.id, true)
+    expect(result.registry.list().map(item => item.id)).toEqual([first.id, second.id, third.id])
+    await expect(result.registry.insertBefore(second.id, first.id))
+      .resolves.toEqual([second.id, first.id, third.id])
+    expect(result.registry.pinnedWorkspaceIds).toEqual([second.id, first.id])
+  })
+
+  it('resolves a repeated pin without writing and rejects an unknown id', async () => {
+    const dir = await makeDir('pin-noop')
+    const result = await harness()
+    const workspace = await result.registry.create(dir)
+    await result.registry.setPinned(workspace.id, true)
+    const written = result.changes.length
+
+    await result.registry.setPinned(workspace.id, true)
+    expect(result.changes).toHaveLength(written)
+
+    await expect(result.registry.setPinned(WorkspaceId('missing'), true))
+      .rejects.toBeInstanceOf(WorkspacePinInvalidError)
+    await expect(result.registry.setPinned(WorkspaceId('missing'), false))
+      .rejects.toBeInstanceOf(WorkspacePinInvalidError)
+    expect(result.changes).toHaveLength(written)
+  })
+
+  it('defaults an absent pin count on media written before the field', async () => {
+    const dir = await makeDir('pin-legacy')
+    const pool = storedPool([[ 'legacy', record(dir, []) ]], { initialized: true, workspaceIds: ['legacy' as WorkspaceId] })
+    const result = await harness({ pool })
+    expect(result.registry.pinnedWorkspaceIds).toEqual([])
+    expect(result.registry.list().map(item => item.id)).toEqual(['legacy'])
   })
 })
 
@@ -848,7 +1020,9 @@ describe('header-validated membership projection', () => {
     const createRecovery = await harness({ pool: interruptedCreate })
     expect(createRecovery.registry.list()).toEqual([])
     expect(interruptedCreate.media.get('workspace')!.tables.get('workspaces')!.has(createId)).toBe(false)
-    expect(storedState(interruptedCreate)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(interruptedCreate)).toEqual({
+      initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], pinnedCount: 0,
+    })
 
     const interruptedDelete = storedPool(
       [[deleteId, record(deleteDir, [])]],
@@ -861,7 +1035,9 @@ describe('header-validated membership projection', () => {
     const deleteRecovery = await harness({ pool: interruptedDelete })
     expect(deleteRecovery.registry.list()).toEqual([])
     expect(interruptedDelete.media.get('workspace')!.tables.get('workspaces')!.has(deleteId)).toBe(false)
-    expect(storedState(interruptedDelete)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
+    expect(storedState(interruptedDelete)).toEqual({
+      initialized: true, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], pinnedCount: 0,
+    })
 
     const corruptPending = storedPool(
       [[deleteId, record(deleteDir, [])]],

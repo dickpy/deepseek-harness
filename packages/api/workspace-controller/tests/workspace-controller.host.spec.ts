@@ -186,6 +186,7 @@ describe('WorkspaceController commands', () => {
       beforeWorkspaceId: second.workspace.workspaceId,
     })).resolves.toEqual({
       workspaceIds: [first.workspace.workspaceId, second.workspace.workspaceId],
+      pinnedWorkspaceIds: [],
     })
     await expect(controller.insertBefore({ workspaceId: 'missing' as WorkspaceId }))
       .rejects.toMatchObject({ code: 'workspace/not-found' })
@@ -222,6 +223,27 @@ describe('WorkspaceController commands', () => {
     await expect(controller.archiveSession({ sessionId: SessionId('unknown') }))
       .rejects.toMatchObject({ code: 'session/not-found' })
   })
+
+  it('pins and unpins a Workspace and rejects an unknown one', async () => {
+    const { controller, root } = await harness()
+    const first = await controller.create({ path: stageDir(root, 'pin-first') })
+    const second = await controller.create({ path: stageDir(root, 'pin-second') })
+
+    // The alias results encode the order, so they also pin down the boundary:
+    // a pin leads the list, and a release lands at the head of the unpinned group.
+    await expect(controller.setPinned({ workspaceId: first.workspace.workspaceId, pinned: true }))
+      .resolves.toEqual({
+        workspaceIds: [first.workspace.workspaceId, second.workspace.workspaceId],
+        pinnedWorkspaceIds: [first.workspace.workspaceId],
+      })
+    await expect(controller.setPinned({ workspaceId: first.workspace.workspaceId, pinned: false }))
+      .resolves.toEqual({
+        workspaceIds: [first.workspace.workspaceId, second.workspace.workspaceId],
+        pinnedWorkspaceIds: [],
+      })
+    await expect(controller.setPinned({ workspaceId: 'missing' as WorkspaceId, pinned: true }))
+      .rejects.toMatchObject({ code: 'workspace/not-found' })
+  })
 })
 
 describe('WorkspaceController follow', () => {
@@ -254,7 +276,7 @@ describe('WorkspaceController follow', () => {
     const iterator = controller.follow(abort.signal)[Symbol.asyncIterator]()
     await expect(nextFrame(iterator)).resolves.toEqual({
       type: 'baseline',
-      value: { items: [], archivedSessionIds: [] },
+      value: { items: [], archivedSessionIds: [], pinnedWorkspaceIds: [], pinnedSessionIds: [] },
     })
 
     const first = await controller.create({ path: stageDir(root, 'first') })
@@ -262,7 +284,7 @@ describe('WorkspaceController follow', () => {
       type: 'upsert', workspace: { workspaceId: first.workspace.workspaceId },
     })
     await expect(nextFrame(iterator)).resolves.toEqual({
-      type: 'order', workspaceIds: [first.workspace.workspaceId],
+      type: 'order', workspaceIds: [first.workspace.workspaceId], pinnedWorkspaceIds: [],
     })
     await controller.rename({ workspaceId: first.workspace.workspaceId, title: 'renamed' })
     await expect(nextFrame(iterator)).resolves.toMatchObject({
@@ -274,7 +296,7 @@ describe('WorkspaceController follow', () => {
       type: 'upsert', workspace: { workspaceId: second.workspace.workspaceId },
     })
     await expect(nextFrame(iterator)).resolves.toEqual({
-      type: 'order', workspaceIds: [second.workspace.workspaceId, first.workspace.workspaceId],
+      type: 'order', workspaceIds: [second.workspace.workspaceId, first.workspace.workspaceId], pinnedWorkspaceIds: [],
     })
     await controller.insertBefore({
       workspaceId: first.workspace.workspaceId,
@@ -283,6 +305,22 @@ describe('WorkspaceController follow', () => {
     await expect(nextFrame(iterator)).resolves.toEqual({
       type: 'order',
       workspaceIds: [first.workspace.workspaceId, second.workspace.workspaceId],
+      pinnedWorkspaceIds: [],
+    })
+
+    // A pin is an order change: the pinned set is the head of the order, so it
+    // rides the same frame instead of one of its own.
+    await controller.setPinned({ workspaceId: first.workspace.workspaceId, pinned: true })
+    await expect(nextFrame(iterator)).resolves.toEqual({
+      type: 'order',
+      workspaceIds: [first.workspace.workspaceId, second.workspace.workspaceId],
+      pinnedWorkspaceIds: [first.workspace.workspaceId],
+    })
+    await controller.setPinned({ workspaceId: first.workspace.workspaceId, pinned: false })
+    await expect(nextFrame(iterator)).resolves.toEqual({
+      type: 'order',
+      workspaceIds: [first.workspace.workspaceId, second.workspace.workspaceId],
+      pinnedWorkspaceIds: [],
     })
 
     const session = ctx.sessions.create(SessionId('archived'), {
@@ -292,9 +330,19 @@ describe('WorkspaceController follow', () => {
     await expect(nextFrame(iterator)).resolves.toEqual({
       type: 'archived', archivedSessionIds: [session.id],
     })
+    // A Session pin is its own set, not a prefix of an ordered array, so unlike
+    // a Workspace pin it travels as a frame of its own.
+    await expect(controller.setSessionPinned({ sessionId: session.id, pinned: true }))
+      .resolves.toEqual({ pinnedSessionIds: [session.id] })
+    await expect(nextFrame(iterator)).resolves.toEqual({
+      type: 'pinned', pinnedSessionIds: [session.id],
+    })
+    await expect(controller.setSessionPinned({ sessionId: session.id, pinned: false }))
+      .resolves.toEqual({ pinnedSessionIds: [] })
+    await expect(nextFrame(iterator)).resolves.toEqual({ type: 'pinned', pinnedSessionIds: [] })
     await controller.delete({ workspaceId: second.workspace.workspaceId })
     await expect(nextFrame(iterator)).resolves.toEqual({
-      type: 'order', workspaceIds: [first.workspace.workspaceId],
+      type: 'order', workspaceIds: [first.workspace.workspaceId], pinnedWorkspaceIds: [],
     })
     await expect(nextFrame(iterator)).resolves.toEqual({
       type: 'remove', workspaceId: second.workspace.workspaceId,
@@ -326,7 +374,7 @@ describe('WorkspaceController follow', () => {
     await expect(pending).resolves.toMatchObject({ value: { type: 'upsert' } })
     await expect(iterator.next()).resolves.toEqual({
       done: false,
-      value: { type: 'order', workspaceIds: [created.workspace.workspaceId] },
+      value: { type: 'order', workspaceIds: [created.workspace.workspaceId], pinnedWorkspaceIds: [] },
     })
 
     const closing = iterator.next()

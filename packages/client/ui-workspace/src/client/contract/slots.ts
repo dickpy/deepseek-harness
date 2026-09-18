@@ -129,11 +129,23 @@ export type WorkspaceBrowserInjected = {
    */
   insertWorkspaceBefore: (workspaceId: WorkspaceId, beforeWorkspaceId?: WorkspaceId) => Promise<void>
   /**
+   * Pin a Workspace to the top of the list, or release it to the top of the
+   * unpinned group. Pinned Workspaces are the leading group of the list, and
+   * reordering never changes membership of that group.
+   */
+  setWorkspacePinned: (workspaceId: WorkspaceId, pinned: boolean) => Promise<void>
+  /**
    * Archive a Session into the registry-global set: hidden from grouping
    * surfaces, log and accounting slot retained. Archiving the current
    * session clears the selection into the New Session view state.
    */
   archiveSession: (sessionId: SessionId) => Promise<void>
+  /**
+   * Pin a Session to the head of the group that owns it — its Workspace
+   * section, or Ungrouped — or release it. A pin never moves a Session
+   * between groups.
+   */
+  setSessionPinned: (sessionId: SessionId, pinned: boolean) => Promise<void>
   /**
    * Reorder a session inside its Workspace account (DOM-insertBefore
    * semantics: omitted anchor appends to the end). The view refreshes from

@@ -48,6 +48,8 @@ export class WorkspaceFeed {
   private readonly followers = new Set<WorkspaceFollower>()
   private knownIds: Set<string>
   private order: readonly string[]
+  private pinned: readonly string[]
+  private pinnedSessions: readonly string[]
   private archived: readonly string[]
 
   /** @param ctx - Host context containing the authoritative Workspace registry. */
@@ -55,6 +57,8 @@ export class WorkspaceFeed {
     const baseline = ctx.workspaceRegistry.list()
     this.knownIds = new Set(baseline.map(workspace => String(workspace.id)))
     this.order = baseline.map(workspace => String(workspace.id))
+    this.pinned = ctx.workspaceRegistry.pinnedWorkspaceIds.map(String)
+    this.pinnedSessions = ctx.workspaceRegistry.pinnedSessionIds.map(String)
     this.archived = ctx.workspaceRegistry.archivedSessionIds.map(String)
     ctx.on('domain/changed', (change: DomainChanged) => { this.changed(change) })
     ctx.effect(() => () => {
@@ -65,12 +69,14 @@ export class WorkspaceFeed {
 
   /**
    * Read the complete current projection synchronously.
-   * @returns all active Workspaces and archived Session identities.
+   * @returns all active Workspaces, the pinned prefix, and archived Session identities.
    */
   baseline(): WorkspaceBaseline {
     return {
       items: this.ctx.workspaceRegistry.list().map(workspaceView),
       archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds],
+      pinnedWorkspaceIds: [...this.ctx.workspaceRegistry.pinnedWorkspaceIds],
+      pinnedSessionIds: [...this.ctx.workspaceRegistry.pinnedSessionIds],
     }
   }
 
@@ -98,7 +104,9 @@ export class WorkspaceFeed {
       if (change.operation !== 'put') return
       const state = workspaceDomainState.parse(change.value)
       const nextOrder = state.workspaceIds.map(String)
+      const nextPinned = state.workspaceIds.slice(0, state.pinnedCount).map(String)
       const orderChanged = !sameStrings(this.order, nextOrder)
+        || !sameStrings(this.pinned, nextPinned)
       for (const id of state.workspaceIds) {
         if (this.knownIds.has(id)) continue
         const workspace = this.ctx.workspaceRegistry.get(id)
@@ -109,11 +117,31 @@ export class WorkspaceFeed {
         this.publish({ type: 'upsert', workspace: workspaceView(workspace) })
       }
       this.order = nextOrder
-      if (orderChanged) this.publish({ type: 'order', workspaceIds: [...state.workspaceIds] })
+      this.pinned = nextPinned
+      // Pin state rides the order frame: the pinned set is exactly the head of
+      // the order, so a pin change is an order change and needs no frame of
+      // its own. Both values come from the change payload, never from the
+      // registry — a domain-changed listener runs before the registry has
+      // published the new state to itself, so reading it back would serve the
+      // order this frame is replacing.
+      if (orderChanged) {
+        this.publish({
+          type: 'order',
+          workspaceIds: [...state.workspaceIds],
+          pinnedWorkspaceIds: state.workspaceIds.slice(0, state.pinnedCount),
+        })
+      }
       const nextArchived = state.archivedSessionIds.map(String)
       if (!sameStrings(this.archived, nextArchived)) {
         this.archived = nextArchived
         this.publish({ type: 'archived', archivedSessionIds: [...state.archivedSessionIds] })
+      }
+      // Session pins are their own set rather than a prefix of an ordered
+      // array, so unlike Workspace pins they need a frame of their own.
+      const nextPinnedSessions = state.pinnedSessionIds.map(String)
+      if (!sameStrings(this.pinnedSessions, nextPinnedSessions)) {
+        this.pinnedSessions = nextPinnedSessions
+        this.publish({ type: 'pinned', pinnedSessionIds: [...state.pinnedSessionIds] })
       }
       return
     }

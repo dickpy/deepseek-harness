@@ -110,6 +110,8 @@ export function workspaceSnapshot(): WorkspaceSnapshot {
   return {
     items: [],
     archivedSessionIds: [],
+    pinnedSessionIds: [],
+    pinnedWorkspaceIds: [],
     state: 'idle',
     phase: 'ready',
     error: null,

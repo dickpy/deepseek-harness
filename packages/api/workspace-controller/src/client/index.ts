@@ -102,10 +102,13 @@ function acceptIncrement(accept: WorkspaceFollowSink, frame: WorkspaceFollowIncr
       accept.removeView(frame.workspaceId)
       return
     case 'order':
-      accept.replaceOrder(frame.workspaceIds)
+      accept.replaceOrder(frame.workspaceIds, frame.pinnedWorkspaceIds)
       return
     case 'archived':
       accept.replaceArchived(frame.archivedSessionIds)
+      return
+    case 'pinned':
+      accept.replacePinned(frame.pinnedSessionIds)
       return
     /* v8 ignore next -- the generated Remote codec validates this closed union */
     default:

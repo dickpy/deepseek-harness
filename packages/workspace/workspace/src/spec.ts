@@ -48,11 +48,28 @@ const workspacePendingMutation = z.discriminatedUnion('operation', [
  * archived session keeps its `sessionIds` slot (unarchiving must restore the
  * position), so the set never participates in the one-owner accounting
  * invariant. Defaulted so records written before the field parse unchanged.
+ *
+ * `pinnedCount` is how many leading `workspaceIds` entries are pinned: the
+ * registry keeps those in order at the head of the array, so one ordered
+ * field stays the single source of display order and a pin can never
+ * disagree with it. Zero (and so no pinned workspace) for records written
+ * before the field, and the invariant `0 <= pinnedCount <= workspaceIds.length`
+ * is re-checked at every open.
+ *
+ * `pinnedSessionIds` is the registry-global Session pin set, ordered
+ * newest-pin-first. It is deliberately *not* a per-Workspace account: a pin
+ * does not move a Session between Workspaces, it only decides which rows lead
+ * the group that already owns the Session. So the set never participates in
+ * the one-owner accounting invariant, exactly like `archivedSessionIds`, and
+ * a Workspace deletion leaves its pinned Sessions pinned under Ungrouped.
+ * Defaulted so records written before the field parse unchanged.
  */
 export const workspaceDomainState = z.object({
   initialized: z.boolean(),
   workspaceIds: z.array(workspaceId),
   archivedSessionIds: z.array(z.string().transform(value => brandString<SessionId>(value))).default([]),
+  pinnedSessionIds: z.array(z.string().transform(value => brandString<SessionId>(value))).default([]),
+  pinnedCount: z.number().int().nonnegative().default(0),
   pendingMutation: workspacePendingMutation.optional(),
 })
 
@@ -70,7 +87,9 @@ export const workspaceDomainSpec = defineDomain({
   version: 2,
   global: {
     schema: workspaceDomainState,
-    initial: { initialized: false, workspaceIds: [], archivedSessionIds: [] },
+    initial: {
+      initialized: false, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], pinnedCount: 0,
+    },
   },
   tables: { workspaces: domainTable<WorkspaceId, WorkspaceRecord>(workspaceRecord) },
 })

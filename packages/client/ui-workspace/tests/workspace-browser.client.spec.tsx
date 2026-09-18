@@ -55,7 +55,11 @@ const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView 
 const workspaceState = (
   items: readonly WorkspaceView[],
   archivedSessionIds: readonly SessionId[] = [],
-): WorkspaceSnapshot => ({ items, archivedSessionIds, state: 'idle', phase: 'ready', error: null })
+  pinnedWorkspaceIds: readonly WorkspaceId[] = [],
+  pinnedSessionIds: readonly SessionId[] = [],
+): WorkspaceSnapshot => ({
+  items, archivedSessionIds, pinnedWorkspaceIds, pinnedSessionIds, state: 'idle', phase: 'ready', error: null,
+})
 const noPendingInteraction: SessionPendingInteractionSnapshot = new Map()
 function hook<T>(snapshot: T) {
   return function select<S>(selector: (state: T) => S): S { return selector(snapshot) }
@@ -94,6 +98,8 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
+    setWorkspacePinned: vi.fn(async () => {}),
+    setSessionPinned: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),

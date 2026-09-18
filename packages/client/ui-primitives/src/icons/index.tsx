@@ -990,3 +990,20 @@ export const IconShieldOutline16 = ({ size = 16, className }: IconProps) => (
     <path d={SHIELD_OUTLINE_PATH} stroke="currentColor" strokeWidth={SHIELD_OUTLINE_STROKE} strokeLinejoin="round" />
   </svg>
 )
+
+/**
+ * Pushpin on the 16 grid, hand-authored from two stroked contours: a tapered
+ * head and the needle below it. The Workspace row's pin verb and its pinned
+ * marker share this one glyph, so a restyle reaches both.
+ */
+export const IconPinOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M5.35 2.6H10.65L9.45 6.6H6.55L5.35 2.6Z"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinejoin="round"
+    />
+    <path d="M8 6.6V13.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </svg>
+)

@@ -7,6 +7,7 @@
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   'group.ungrouped': '未分组',
+  'group.pinned': '置顶',
   'session.new': '新会话',
   'section.workspaces': '工作区',
   'section.sessions': '会话',
@@ -40,6 +41,8 @@ export const zh = {
   'rename.session.title': '重命名会话',
   'field.workspaceName': '工作区名称',
   'field.sessionName': '会话名称',
+  'menu.pin': '置顶',
+  'menu.unpin': '取消置顶',
   'delete.workspace': '删除工作区',
   'delete.desc': '将把“{name}”从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在“未分组”下。',
   'delete.pending': '正在删除工作区…',
@@ -77,6 +80,7 @@ export type WorkspaceKey = keyof typeof zh
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'group.ungrouped': 'Ungrouped',
+  'group.pinned': 'Pinned',
   'session.new': 'New Session',
   'section.workspaces': 'Workspaces',
   'section.sessions': 'Sessions',
@@ -110,6 +114,8 @@ export const en = {
   'rename.session.title': 'Rename session',
   'field.workspaceName': 'Workspace name',
   'field.sessionName': 'Session name',
+  'menu.pin': 'Pin to top',
+  'menu.unpin': 'Unpin',
   'delete.workspace': 'Delete workspace',
   'delete.desc': 'This removes “{name}” from the workspace list. The folder and session logs will be kept. Its sessions will appear under Ungrouped.',
   'delete.pending': 'Deleting workspace…',

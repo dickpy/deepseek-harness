@@ -10,8 +10,8 @@ import clsx from 'clsx'
 import {
   HoverCard, IconAlarmClockOutline16, IconArchiveOutline20, IconBranchOutline16,
   IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
-  IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, relativeTime,
-  StateDot,
+  IconPinOutline16, IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu,
+  relativeTime, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
@@ -114,7 +114,13 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
   onToggle: () => void
   onCreate: () => void
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
-  actions?: { rename: () => void; delete: () => void } | undefined
+  actions?: {
+    rename: () => void
+    delete: () => void
+    /** Current pin state, so the menu offers the verb that would apply. */
+    pinned: boolean
+    setPinned: (pinned: boolean) => void
+  } | undefined
   /** Present only for real Workspace rows in the grouped view. */
   drag?: WorkspaceRowDragProps | undefined
   /** Host account home; POSIX home-rooted hover paths display as `~`. */
@@ -127,6 +133,11 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
   const active = group.expanded && group.containsCurrent
   const [menuOpen, setMenuOpen] = useState(false)
   const workspaceMenuItems = [
+    {
+      id: 'pin',
+      label: actions?.pinned === true ? t('menu.unpin') : t('menu.pin'),
+      icon: <IconPinOutline16 />,
+    },
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutline16 />, danger: true },
   ]
@@ -165,9 +176,10 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
               setMenuOpen(false)
               // Unknown ids leave before the dispatch: a future menu row must
               // not inherit the destructive branch as an else fallback.
-              /* v8 ignore next -- Menu can emit only the rename and delete rows supplied above. */
-              if (id !== 'rename' && id !== 'delete') return
-              if (id === 'rename') actions.rename()
+              /* v8 ignore next -- Menu can emit only the pin, rename, and delete rows supplied above. */
+              if (id !== 'pin' && id !== 'rename' && id !== 'delete') return
+              if (id === 'pin') actions.setPinned(!actions.pinned)
+              else if (id === 'rename') actions.rename()
               else actions.delete()
             }}
             portal
@@ -361,6 +373,26 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
 }
 
 /**
+ * The leading pinned section header. It is a header, not a Workspace: no menu,
+ * no new-session button, and nothing to fold, because the rows under it are
+ * exactly the Sessions the operator chose to keep in sight.
+ * @param props.t - the browser root's locale seat.
+ * @returns the pinned section header row.
+ */
+export function PinnedSectionItem({ t }: { t: RowTranslate }) {
+  return (
+    <div className={css.projectRow} role="treeitem" aria-expanded="true">
+      <span className={clsx(css.slot, css.folder)}>
+        <IconPinOutline16 />
+      </span>
+      <span className={css.projectText}>
+        <span className={css.title}>{t('group.pinned')}</span>
+      </span>
+    </div>
+  )
+}
+
+/**
  * One top-level 34px session row: status dot (pending user interaction outranks
  * own or descendant activity), title, relative time, and the row actions menu.
  * @param props.node - derived session node.
@@ -370,6 +402,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.onRename - open the session rename dialog (id + current title).
  * @param props.onFork - fork a session at its last completed turn.
  * @param props.onArchive - archive a session by id.
+ * @param props.onSetPinned - pin this session to the head of its group, or release it.
  * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
  * @param props.drag - optional draggable-row wiring.
  * @param props.flat - omit the empty status slot in the hierarchy-free flat list.
@@ -377,7 +410,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @returns the session row.
  */
 export function SessionNodeItem({
-  node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t,
+  node, currentId, now, onOpen, onRename, onFork, onArchive, onSetPinned, onReveal, drag, flat = false, t,
 }: {
   node: SessionNode
   currentId: string | undefined
@@ -389,6 +422,8 @@ export function SessionNodeItem({
   onFork: (id: SessionNode['id']) => void
   /** Archive this session (row menu action; commits without a dialog). */
   onArchive: (id: SessionNode['id']) => void
+  /** Change this session's pin (row menu action; the Host set is authoritative). */
+  onSetPinned: (id: SessionNode['id'], pinned: boolean) => void
   /** Scroll this row into view after search navigation, then acknowledge it. */
   onReveal?: (() => void) | undefined
   /** Present only on draggable rows (workspace-group sessions outside search). */
@@ -414,6 +449,11 @@ export function SessionNodeItem({
   // touches the session log, so it is not styled as destructive and needs no
   // confirmation dialog.
   const sessionMenuItems = [
+    {
+      id: 'pin',
+      label: row.pinned ? t('menu.unpin') : t('menu.pin'),
+      icon: <IconPinOutline16 />,
+    },
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
     // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
@@ -479,6 +519,7 @@ export function SessionNodeItem({
             items={sessionMenuItems}
             onSelect={(id) => {
               setMenuOpen(false)
+              if (id === 'pin') onSetPinned(node.id, !row.pinned)
               if (id === 'rename') onRename(node.id, row.title)
               if (id === 'fork') onFork(node.id)
               if (id === 'archive') onArchive(node.id)

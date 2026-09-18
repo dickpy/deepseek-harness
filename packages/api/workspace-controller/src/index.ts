@@ -16,7 +16,10 @@ import type {
   WorkspaceInsertBeforeRequest,
   WorkspaceInsertSessionBeforeRequest,
   WorkspaceOrderValue,
+  WorkspacePinSessionValue,
   WorkspaceRenameRequest,
+  WorkspaceSetSessionPinnedRequest,
+  WorkspaceSetPinnedRequest,
   WorkspaceValue,
 } from './types.ts'
 
@@ -90,6 +93,16 @@ export class WorkspaceController extends TypertRemoteService {
   }
 
   /**
+   * Pin one Workspace to the top of the registry display order, or release it.
+   * @param request - Workspace identity and the requested pin state.
+   * @returns the complete resulting Workspace order.
+   */
+  @Remote('setPinned')
+  setPinned(request: WorkspaceSetPinnedRequest): Promise<WorkspaceOrderValue> {
+    return this.commands.setPinned(request)
+  }
+
+  /**
    * Move one accounted Session within a Workspace.
    * @param request - Workspace, Session, and optional anchor identities.
    * @returns the updated Workspace projection.
@@ -107,6 +120,16 @@ export class WorkspaceController extends TypertRemoteService {
   @Remote('archiveSession')
   archiveSession(request: WorkspaceArchiveSessionRequest): Promise<WorkspaceArchiveValue> {
     return this.commands.archiveSession(request)
+  }
+
+  /**
+   * Pin one Session to the head of the group that owns it, or release it.
+   * @param request - Session identity and the requested pin state.
+   * @returns the complete resulting pin set.
+   */
+  @Remote('setSessionPinned')
+  setSessionPinned(request: WorkspaceSetSessionPinnedRequest): Promise<WorkspacePinSessionValue> {
+    return this.commands.setSessionPinned(request)
   }
 
   /**
