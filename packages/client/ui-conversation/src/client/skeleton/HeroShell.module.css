@@ -26,12 +26,29 @@
 /* WorkBuddy 式问候语：居中、加重、比正文大一级。 */
 .headline {
   margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   text-align: center;
   font-size: 30px;
   line-height: 38px;
   font-weight: 700;
   letter-spacing: -0.3px;
   color: var(--dsw-alias-label-primary);
+}
+
+/* 「预览版」徽标：跟随问候语的基线，弱化底色，不抢主体视觉。 */
+.previewBadge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-caption);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 /* Workspace row sits 12px above the input card (figma y80 → y112). */

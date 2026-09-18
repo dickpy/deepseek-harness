@@ -105,6 +105,11 @@ export async function packageMacOSArtifacts(
     if (failures.length > 0) {
       throw new AggregateError(failures.map(result => result.reason), 'desktop macOS packaging: artifact lanes failed')
     }
+    // 上游在两条 lane 收口后再验一次更新配置与签名，测试按 4 次调用断言，这里保留。
+    await verifyMacOSAppUpdateConfig(zipApp, update)
+    await verifyMacOSAppUpdateConfig(dmgApp, update)
+    apple.verifySignature(zipApp, expected)
+    apple.verifySignature(dmgApp, expected)
     const base = desktopArtifactBasename(version, 'mac', arch)
     const artifacts = [
       [dmgOutput, `${base}.dmg`],

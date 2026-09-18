@@ -82,7 +82,11 @@ export function HeroShell({ t, renderSlot, children }: HeroShellProps) {
   return (
     <div className={css.root}>
       <div className={css.stack}>
-        <h1 className={css.headline}>{t('hero.headline')}</h1>
+        <h1 className={css.headline}>
+          {/* fork: 问候语与上游的「预览版」徽标同排；徽标文案仍走词典。 */}
+          <span>{t('hero.headline')}</span>
+          <span className={css.previewBadge}>{t('hero.preview')}</span>
+        </h1>
         {/* WorkBuddy 式模块目录（ui-enterprise 注入；session-maybe 槽位，
             无会话时占用方拿不到 inputActions，chips 自行禁用）。 */}
         {renderSlot('conversation.hero.catalog', {})}

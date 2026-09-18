@@ -1,6 +1,6 @@
 /** MCP resource ownership in the shipped Desktop composition. */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,14 @@ it('retains one shared resource consumer in the Desktop Web profile', () => {
   try {
     const profileDir = join(home, 'profiles', 'desktop')
     createPluginProfile(profileDir)
+    // fork: 桌面 profile 还挂着内置的 dsh-context（随桌面运行时项目从 registry 安装）。
+    // 夹具补一个可解析的桩，否则 profile 装载会因为找不到它而失败。
+    const bundledStub = join(profileDir, 'node_modules', 'dsh-context')
+    mkdirSync(bundledStub, { recursive: true })
+    writeFileSync(join(bundledStub, 'package.json'), `${JSON.stringify({
+      name: 'dsh-context', version: '0.52.2', dsh: { bundle: { patch: './bundle.yml' } },
+    })}\n`)
+    writeFileSync(join(bundledStub, 'bundle.yml'), '[]\n')
     const installAnchor = fileURLToPath(new URL('../../cli/package.json', import.meta.url))
     const profile = loadProfileDirectory('dsh desktop', profileDir, installAnchor)
     const warnings: string[] = []

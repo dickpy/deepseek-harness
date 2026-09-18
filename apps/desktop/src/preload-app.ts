@@ -65,6 +65,8 @@ markDocumentPlatform()
 syncNativeTheme()
 // Main-process IPC also verifies the owning window and top frame.
 const ownedDocument = location.protocol === `${SCHEME}:`
+// fork: 登录窗是唯一拿到企业登录桥的 shell 文档；其余 dsh-app://shell/* 只留载体标记。
+const loginDocument = ownedDocument && location.hostname === 'shell' && location.pathname === '/login.html'
 contextBridge.exposeInMainWorld('dshDesktop', ownedDocument && location.hostname === 'app'
   ? product
-  : ownedDocument && location.hostname === 'shell' ? login : { protocolVersion: 1 })
+  : loginDocument ? login : { protocolVersion: 1 })

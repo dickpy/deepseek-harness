@@ -83,7 +83,7 @@ export function createElectronBuilderConfig(
   // fork: 桌面产品版本（appInfo.version，决定安装包名与更新版本）与内置 dsh 运行时版本已解耦；
   // 运行时描述符与 package set 记录的始终是 dsh 版本，所以这些 hook 必须读仓库根清单。
   const runtimeVersion = JSON.parse(
-    readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),
+    readFileSync(fileURLToPath(new URL('../../../package.json', import.meta.url)), 'utf8'),
   ).version
   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
   return {

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, delimiter, join } from 'node:path'
@@ -8,6 +8,16 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { resolveCredentialUploadEnvironment } from '../scripts/upload-target.ts'
 
 const execute = promisify(execFile)
+// fork: 这些用例驱动真实的 pwsh 子进程。开发机上可能只装了 Windows PowerShell，
+// 缺少 pwsh 时用例无法成立（spawn 会以字符串码 ENOENT 失败），显式跳过而不是报假失败。
+const hasPwsh = ((): boolean => {
+  try {
+    const probe = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])
+    return probe.error === undefined
+  } catch {
+    return false
+  }
+})()
 const launcher = fileURLToPath(new URL('../scripts/upload-with-credentials.ps1', import.meta.url))
 const roots: string[] = []
 const quote = (value: string): string => `'${value.replaceAll("'", "''")}'`
@@ -115,7 +125,7 @@ describe('credential launcher destination', () => {
 
 // DPAPI's user-and-machine encryption is Windows-only.
 describe.skipIf(process.platform !== 'win32')('Windows upload credentials', () => {
-  it.each(['production', 'test'])('checks %s credentials without uploading or changing the parent', async (deployment) => {
+  it.skipIf(!hasPwsh).each(['production', 'test'])('checks %s credentials without uploading or changing the parent', async (deployment) => {
     const result = await check('valid', deployment)
     expect(result.code, result.output).toBe(0)
     const expected = await readFile(new URL('./expected/upload-credentials-check.txt', import.meta.url), 'utf8')
@@ -125,7 +135,7 @@ describe.skipIf(process.platform !== 'win32')('Windows upload credentials', () =
     expect(result.output).not.toContain('uploading')
   })
 
-  it.each(['plaintext', 'blank', 'missing'] as const)('rejects %s credentials without printing values', async (mode) => {
+  it.skipIf(!hasPwsh).each(['plaintext', 'blank', 'missing'] as const)('rejects %s credentials without printing values', async (mode) => {
     const result = await check(mode)
     expect(result.code).toBe(1)
     expect(result.output).toContain('desktop credentials: failed;')
@@ -134,7 +144,7 @@ describe.skipIf(process.platform !== 'win32')('Windows upload credentials', () =
     expect(result.output).not.toContain('child environment verified')
   })
 
-  it.each(['upload', 'upload-failure'] as const)('isolates the %s child and sanitizes both output streams', async (mode) => {
+  it.skipIf(!hasPwsh).each(['upload', 'upload-failure'] as const)('isolates the %s child and sanitizes both output streams', async (mode) => {
     const result = await check(mode)
     expect(result.code, result.output).toBe(mode === 'upload' ? 0 : 1)
     expect(result.output).toContain('[REDACTED] [REDACTED]')

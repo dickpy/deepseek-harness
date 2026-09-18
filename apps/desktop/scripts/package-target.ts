@@ -310,14 +310,17 @@ function runPnpm(
  *
  * 普通用户锁定 default 指向的通道，登录页不渲染切换入口；internal 模式仍能看到全部通道。
  * @param root - 目标构建目录（清单与其它产物同级）。
- * @param environment - DSH_ENTERPRISE_ENVIRONMENT 的取值；缺省时沿用源清单的 default。
- * @returns 烘焙后的清单路径。
+ * @param environment - DSH_ENTERPRISE_ENVIRONMENT 的取值；缺省时不再写文件，源清单即最终清单。
+ * @returns 烘焙后的清单路径（缺省通道时为构建目录下的目标路径，文件由 electron-builder 回落源清单）。
  * @throws 源清单结构/地址非法，或所选通道不存在时抛出，让打包直接失败。
  */
 export function bakeEnterpriseManifest(root: string, environment?: string): string {
   const manifest = parseEnterpriseManifest(readFileSync(join(APP_ROOT, 'enterprise.json'), 'utf8'))
   const channel = resolveEnterpriseChannel(manifest, environment)
   const target = join(root, 'enterprise.json')
+  // 没有构建期通道覆盖时，源清单的 default 就是最终结果：不写文件，
+  // electron-builder 的 extraResources 会回落到 apps/desktop/enterprise.json。
+  if (environment === undefined || environment === '') return target
   writeFileSync(target, `${JSON.stringify({
     '//': '由 apps/desktop/enterprise.json 于打包期生成；default 是普通用户锁定的通道，其余通道仅内部模式可见。',
     default: channel.locked.key,
