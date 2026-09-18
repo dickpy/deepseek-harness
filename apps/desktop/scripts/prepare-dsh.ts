@@ -3,7 +3,7 @@
 import { spawn, execFile } from 'node:child_process'
 import { copyFileSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join, relative, resolve } from 'node:path'
-import { createRuntimeProjectMetadata } from '../src/project-manager.ts'
+import { createRuntimeProjectMetadata, DESKTOP_BUNDLED_PLUGINS } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { parseDesktopRelease, type DesktopRelease } from '../src/release.ts'
 import {
@@ -45,6 +45,30 @@ function manifestVersion(path: string, subject: string): string {
   const manifest = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
   if (typeof manifest.version !== 'string') throw new Error(`desktop runtime: ${subject} has no version`)
   return manifest.version
+}
+
+/**
+ * Require every bundled third-party plugin to be installed at its pinned
+ * version, and report the names for the runtime inventory. A range in the
+ * pinned table would let the lockfile drift past the version this build was
+ * validated against, so the comparison is exact.
+ * @param modules - Installed production `node_modules` of the runtime project.
+ * @returns Bundled plugin names in deterministic order.
+ */
+function verifyBundledPlugins(modules: string): string[] {
+  return Object.entries(DESKTOP_BUNDLED_PLUGINS)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, version]) => {
+      const manifest = join(modules, ...name.split('/'), 'package.json')
+      if (!existsSync(manifest)) {
+        throw new Error(`desktop runtime: bundled plugin ${name} was not installed`)
+      }
+      const installed = manifestVersion(manifest, `bundled plugin ${name}`)
+      if (installed !== version) {
+        throw new Error(`desktop runtime: bundled plugin ${name}@${installed} does not match the pinned ${version}`)
+      }
+      return name
+    })
 }
 
 /**
@@ -174,6 +198,7 @@ async function main(): Promise<void> {
     const targetName = resolveDesktopBuildTarget()
     const target = { platform: process.platform, arch: targetName.endsWith('arm64') ? 'arm64' : 'x64' }
     const modules = join(BUILD_ROOT, 'node_modules')
+    const bundledPlugins = verifyBundledPlugins(modules)
     mkdirSync(DSH_OUTPUT_ROOT, { recursive: true })
     materializeModules(
       modules,
@@ -182,7 +207,10 @@ async function main(): Promise<void> {
     )
     writeFileSync(join(DSH_OUTPUT_ROOT, 'package.json'), `${JSON.stringify({
       name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: release.version, type: 'module',
-      dependencies: Object.fromEntries(packageSet.packages.map(entry => [entry.name, entry.version])),
+      dependencies: Object.fromEntries([
+        ...packageSet.packages.map(entry => [entry.name, entry.version]),
+        ...Object.entries(DESKTOP_BUNDLED_PLUGINS),
+      ]),
     }, undefined, 2)}\n`)
     for (const file of DESKTOP_HOST_RUNTIME_FILES) {
       if (!existsSync(join(DSH_OUTPUT_ROOT, 'node_modules', DESKTOP_HOST_PACKAGE, file))) {
@@ -192,7 +220,11 @@ async function main(): Promise<void> {
     if (process.platform === 'darwin') {
       await signMacOSRuntime(DSH_OUTPUT_ROOT, resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env))
     }
-    writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target)
+    writeDesktopRuntime(
+      DSH_OUTPUT_ROOT, release,
+      [...packageSet.packages.map(entry => entry.name), ...bundledPlugins],
+      target,
+    )
     const descriptor = await verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target)
     await new Promise<void>((accept, reject) => {
       execFile(NODE, [join(APP_ROOT, 'tests/fixtures/runtime-payload-smoke.mjs'), DSH_OUTPUT_ROOT],

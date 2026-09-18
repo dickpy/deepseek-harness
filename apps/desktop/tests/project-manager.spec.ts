@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveDesktopPaths } from '../src/paths.ts'
-import { DesktopProjectManager, packageNameFromSpec, type DesktopProjectHooks } from '../src/project-manager.ts'
+import {
+  DESKTOP_PROFILE_BUNDLES, DesktopProjectManager, packageNameFromSpec, type DesktopProjectHooks,
+} from '../src/project-manager.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
 const roots: string[] = []
@@ -60,6 +62,13 @@ function calls(root: string): { args: string[]; registry: string }[] {
   const path = join(root, 'pnpm-log.jsonl')
   return existsSync(path) ? readFileSync(path, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { args: string[]; registry: string }) : []
 }
+
+/** Bundle list the active profile mounts. */
+function bundles(manager: DesktopProjectManager): string[] {
+  return (JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8')) as {
+    dsh: { profile: { bundles: string[] } }
+  }).dsh.profile.bundles
+}
 afterEach(async () => {
   const cleanups = releaseWorkers.splice(0)
   const directories = roots.splice(0)
@@ -82,6 +91,59 @@ describe('desktop external plugin profile', () => {
     expect(readFileSync(manifest, 'utf8')).toBe('{broken')
     await manager.resetConfiguration(hooks())
     expect(existsSync(manifest)).toBe(false)
+    await expect(manager.applyRelease()).resolves.toBe(false)
+  })
+
+  it('activates a profile whose bundle prefix and runtime both come from an older release', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    manifest.dsh.profile.bundles = [
+      '@deepseek-ai/dsh-base',
+      '@deepseek-ai/dsh-web-app',
+      '@deepseek-ai/dsh-plugin-enterprise',
+    ]
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    // The upgraded application ships a different runtime, so activation cannot
+    // take the unchanged-profile shortcut: this is the first launch after an
+    // update, the one that used to reject the prefix the previous build wrote.
+    const statePath = join(manager.paths.profile, 'desktop-runtime-state.json')
+    const state = JSON.parse(readFileSync(statePath, 'utf8')) as { runtimeId: string }
+    writeFileSync(statePath, JSON.stringify({ ...state, runtimeId: 'a'.repeat(64) }))
+
+    await expect(manager.applyRelease()).resolves.toBe(true)
+    expect(bundles(manager)).toEqual([...DESKTOP_PROFILE_BUNDLES])
+  })
+
+  it('realigns a bundle prefix written by an older build and keeps the profile plugins', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    await manager.mutate({ type: 'plugin-add', spec: 'plugin@1.0.0' }, hooks())
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    // What an older release leaves behind: its own built-in prefix — the three
+    // core bundles, without the bundled plugin this build adds — plus a bundled
+    // plugin that has since left the release entirely.
+    manifest.dsh.profile.bundles = [
+      '@deepseek-ai/dsh-base',
+      '@deepseek-ai/dsh-web-app',
+      '@deepseek-ai/dsh-plugin-enterprise',
+      'retired-bundled-plugin',
+      'plugin',
+    ]
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    // Reading the profile's plugins must not reject a prefix another build
+    // wrote; the plugin manager shows the same tail activation mounts.
+    expect(manager.listPlugins().find(plugin => plugin.name === 'plugin')?.enabled).toBe(true)
+
+    await expect(manager.applyRelease()).resolves.toBe(true)
+    expect(bundles(manager)).toEqual([...DESKTOP_PROFILE_BUNDLES, 'plugin'])
+    // The realigned profile is steady state again: the next launch is a no-op.
     await expect(manager.applyRelease()).resolves.toBe(false)
   })
 

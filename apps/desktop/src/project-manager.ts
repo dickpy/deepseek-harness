@@ -78,7 +78,33 @@ export type DesktopProjectMutation =
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
 const DSH_PACKAGE = '@deepseek-ai/dsh'
 const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
-const DESKTOP_PROFILE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-plugin-enterprise'] as const
+/**
+ * Third-party plugins shipped inside the Desktop runtime, pinned to the exact
+ * versions the runtime project installs from the npm registry. Each is a
+ * bundle carrying its own `cordis.patch.yml`, so the profile order alone
+ * mounts it; none is user-visible or removable in the plugin manager.
+ *
+ * The same versions are declared in `apps/desktop-host/package.json` — that
+ * manifest is what the workspace install, the dependency graph, and the
+ * third-party notices read; this table is what the packaging scripts install
+ * and record in the runtime inventory. `tests/bundled-plugins.spec.ts` keeps
+ * the two in step.
+ */
+export const DESKTOP_BUNDLED_PLUGINS: Readonly<Record<string, string>> = {
+  'dsh-context': '0.52.2',
+}
+/**
+ * The bundle list every Desktop build mounts ahead of the profile's own
+ * plugins. It is host-owned: a release may add or drop a member, so a profile
+ * written by an older build carries that build's version of this prefix, and
+ * activation recomputes it instead of demanding an exact match.
+ */
+export const DESKTOP_PROFILE_BUNDLES = [
+  '@deepseek-ai/dsh-base',
+  '@deepseek-ai/dsh-web-app',
+  '@deepseek-ai/dsh-plugin-enterprise',
+  ...Object.keys(DESKTOP_BUNDLED_PLUGINS),
+] as const
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\nstrictDepBuilds: true\n'
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/[a-z0-9][a-z0-9._~-]*|[a-z0-9][a-z0-9._~-]*)$/u
 const VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/u
@@ -177,6 +203,47 @@ function profilePluginNames(projectDir: string): readonly string[] {
   return plugins
 }
 
+function sameBundles(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((bundle, index) => bundle === right[index])
+}
+
+/** Whether the profile installs this bundle's package from its own node_modules. */
+function hasLocalBundle(projectDir: string, name: string): boolean {
+  if (!PACKAGE_NAME_PATTERN.test(name)) return false
+  return existsSync(join(projectDir, 'node_modules', ...name.split('/'), 'package.json'))
+}
+
+/**
+ * The bundle list this build writes for one profile: its own built-in bundles
+ * followed by the bundles that profile installs for itself, in stored order.
+ *
+ * The stored list is a host-owned prefix plus user plugins, and the prefix
+ * changes whenever a release adds or drops a bundled plugin. Recomputing it
+ * here is what lets an upgraded profile keep working: an entry that names a
+ * package this application provides, or that the profile does not install
+ * locally, is an older build's prefix member and drops out; everything else is
+ * a plugin the operator installed and stays.
+ * @param projectDir - Profile directory whose manifest supplies the plugins.
+ * @param stored - Bundle list read from that manifest.
+ * @param hostOwned - Package names this application's runtime provides.
+ * @returns Built-in bundles followed by the profile's own plugin bundles.
+ */
+function reconciledBundles(
+  projectDir: string,
+  stored: readonly string[],
+  hostOwned: ReadonlySet<string>,
+): string[] {
+  const seen = new Set<string>([...DESKTOP_PROFILE_BUNDLES, ...hostOwned])
+  const plugins = stored.filter((name) => {
+    // A repeat is a duplicate the profile may not mount, so the first wins.
+    if (seen.has(name)) return false
+    if (!hasLocalBundle(projectDir, name)) return false
+    seen.add(name)
+    return true
+  })
+  return [...DESKTOP_PROFILE_BUNDLES, ...plugins]
+}
+
 function pluginRecords(projectDir: string): readonly DesktopPluginRecord[] {
   return Object.keys(projectManifest(projectDir).dependencies).sort().map(name => inspectPlugin(projectDir, name))
 }
@@ -215,7 +282,13 @@ function inspectPlugin(projectDir: string, requestedName: string): DesktopPlugin
   if ((patchPath !== packageDir && !patchPath.startsWith(packageDir + sep)) || !existsSync(patchPath)) {
     throw new Error(`desktop project: ${requestedName}@${manifest.version} declares an invalid bundle patch`)
   }
-  return { name: requestedName, version: manifest.version, enabled: profilePluginNames(projectDir).includes(requestedName) }
+  // The plugin manager reads the same tail activation mounts, so listing a
+  // profile written by an older build must not trip the prefix validator: a
+  // mounted plugin is one the bundle list names and the built-ins do not.
+  const bundles = projectManifest(projectDir).dsh.profile.bundles
+  const enabled = bundles.includes(requestedName)
+    && !(DESKTOP_PROFILE_BUNDLES as readonly string[]).includes(requestedName)
+  return { name: requestedName, version: manifest.version, enabled }
 }
 
 /** Desktop npm project manager with direct writes and no rollback. */
@@ -299,7 +372,39 @@ export class DesktopProjectManager {
   private prepareProfile(projectDir: string): void {
     const runtime = this.currentRuntime()
     linkDesktopHostPackages(projectDir, this.runtime.dsh, runtime)
+    // A profile written by an older build leads with that build's built-in
+    // prefix, and the prefix is the application's fact, not the profile's. It
+    // is realigned here so an upgrade never rejects the list this build is
+    // about to own — the failure that stopped every release which changed it.
+    this.alignBuiltInBundles(projectDir)
     validateDesktopPluginGraph(projectDir, this.runtime.dsh, runtime, profilePluginNames(projectDir))
+  }
+
+  /** Package names this application's verified runtime provides. */
+  private hostOwnedPackages(): ReadonlySet<string> {
+    return new Set(this.currentRuntime().sharedPackages.map(entry => entry.name))
+  }
+
+  /** Whether the profile already carries exactly this build's bundle list. */
+  private bundlesAligned(projectDir: string): boolean {
+    const stored = projectManifest(projectDir).dsh.profile.bundles
+    return sameBundles(stored, reconciledBundles(projectDir, stored, this.hostOwnedPackages()))
+  }
+
+  /**
+   * Rewrite the profile's host-owned bundle prefix to this build's list while
+   * keeping the bundles the profile installs for itself.
+   * @param projectDir - Profile directory to update in place.
+   */
+  private alignBuiltInBundles(projectDir: string): void {
+    const manifest = projectManifest(projectDir)
+    const stored = manifest.dsh.profile.bundles
+    const bundles = reconciledBundles(projectDir, stored, this.hostOwnedPackages())
+    if (sameBundles(stored, bundles)) return
+    writeJson(join(projectDir, 'package.json'), {
+      ...manifest,
+      dsh: { ...manifest.dsh, profile: { ...manifest.dsh.profile, bundles } },
+    } satisfies DesktopProjectManifest)
   }
 
   /** Read release metadata and reconcile its external profile without installing core packages. */
@@ -313,7 +418,12 @@ export class DesktopProjectManager {
         && previous.links.length === target.sharedPackages.length
         && previous.links.every(link => existsSync(link.target)
           && existsSync(join(this.paths.profile, 'node_modules', link.name))
-          && realpathSync.native(link.target) === realpathSync.native(join(this.runtime.dsh, 'node_modules', link.name)))) {
+          && realpathSync.native(link.target) === realpathSync.native(join(this.runtime.dsh, 'node_modules', link.name)))
+        // The bundle prefix is compared here too: a build that shipped a
+        // different built-in list leaves a profile whose links and runtime
+        // identity still match, and without this the untouched prefix would
+        // survive every later launch instead of being realigned.
+        && this.bundlesAligned(this.paths.profile)) {
         return false
       }
       if (previous === undefined) createPluginProfile(this.paths.profile)
@@ -560,15 +670,23 @@ export class DesktopProjectManager {
   }
 }
 
-/** Create build-only project metadata for materializing the signed runtime. */
+/**
+ * Create build-only project metadata for materializing the signed runtime.
+ *
+ * Bundled third-party plugins join the local core tarballs as plain registry
+ * dependencies, so the frozen-lockfile install places them in the runtime's
+ * own `node_modules` beside dsh — the installation anchor every profile
+ * resolves a bundle from.
+ */
 export function createRuntimeProjectMetadata(projectDir: string, release: DesktopRelease): void {
   mkdirSync(projectDir, { recursive: true, mode: 0o700 })
   const packageSet = verifyDesktopCorePackageSet(projectDir, release.version)
+  const dependencies = { ...desktopCorePackageOverrides(packageSet), ...DESKTOP_BUNDLED_PLUGINS }
   const manifest: DesktopProjectManifest = {
     name: PROJECT_NAME,
     private: true,
     version: '0.0.0',
-    dependencies: desktopCorePackageOverrides(packageSet),
+    dependencies,
     dsh: { profile: { bundles: [...DESKTOP_PROFILE_BUNDLES] } },
   }
   writeJson(join(projectDir, 'package.json'), manifest)
@@ -593,6 +711,7 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
     dependencies: {
       [DSH_PACKAGE]: release.version,
       [DESKTOP_HOST_PACKAGE]: release.version,
+      ...DESKTOP_BUNDLED_PLUGINS,
     },
     dsh: { profile: { bundles: [...DESKTOP_PROFILE_BUNDLES] } },
   }
