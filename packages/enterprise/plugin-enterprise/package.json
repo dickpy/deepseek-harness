@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-plugin-enterprise",
-  "version": "0.1.5-rc.2",
+  "version": "0.1.6-alpha.2",
   "description": "\u4f01\u4e1a\u7248\u5185\u7f6e\u63d2\u4ef6\uff1a\u8bbe\u5907\u6ce8\u518c\u3001\u4e91\u7aef\u6a21\u578b\u4e0b\u53d1\u5e94\u7528\u3001\u7528\u91cf\u9065\u6d4b\u4e0a\u62a5\uff08dsh-enterprise \u7ba1\u7406\u5e73\u53f0\u914d\u5957\uff09",
   "type": "module",
   "main": "lib/index.js",

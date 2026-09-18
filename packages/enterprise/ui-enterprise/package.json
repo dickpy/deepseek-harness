@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-enterprise",
   "description": "企业客户端表面：侧边栏用户卡（切换/退出登录）+ 会话首页模块目录 + 菜单权限显隐",
-  "version": "0.1.5-rc.2",
+  "version": "0.1.6-alpha.2",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
