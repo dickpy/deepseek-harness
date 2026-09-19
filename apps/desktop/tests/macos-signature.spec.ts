@@ -113,7 +113,11 @@ describe('desktop macOS release signature', () => {
       DSH_DESKTOP_UNSIGNED: '1',
     }, 'win32', 'x64')
     expect(portablePath(config.directories.output)).toContain('/targets/win-x64/unsigned-out')
-    expect(portablePath(config.nsis.include)).toMatch(/\/scripts\/installer\.nsh$/u)
+    // fork: 默认走经典 NSIS 形态，自绘 installSection/include 一律不注入；
+    // 自绘形态（DSH_DESKTOP_INSTALLER=custom）由 installed-update 用例单独覆盖。
+    expect(config.nsis.include).toBeUndefined()
+    expect(config.nsis.allowToChangeInstallationDirectory).toBe(true)
+    expect(portablePath(config.nsis.installerSidebar)).toMatch(/\/installer\/assets\/sidebar\.bmp$/u)
     expect(config).toMatchObject({
       win: { forceCodeSigning: false, signtoolOptions: { sign: undefined } },
       publish: null,

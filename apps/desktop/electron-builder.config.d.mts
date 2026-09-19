@@ -39,17 +39,20 @@ export interface DesktopElectronBuilderConfig {
     }
   }
   readonly nsis: {
-    readonly include: string
+    // fork: 只有自绘形态注入 installer.nsh；经典形态改用随仓库带的品牌侧栏图，并放开安装目录页。
+    readonly include?: string
+    readonly installerSidebar: string
+    readonly uninstallerSidebar: string
     readonly oneClick: false
     readonly perMachine: false
     readonly allowElevation: false
-    readonly allowToChangeInstallationDirectory: false
+    readonly allowToChangeInstallationDirectory: boolean
     readonly installerLanguages: readonly ['en_US', 'zh_CN']
   }
   readonly beforeBuild: () => Promise<boolean>
   readonly beforePack: (context: { readonly appOutDir: string }) => Promise<void>
   readonly artifactBuildCompleted: (artifact: { readonly file: string }) => Promise<void> | undefined
-  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string }] | null
+  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string, readonly channel: string }] | null
 }
 
 /**
