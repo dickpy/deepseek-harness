@@ -6,6 +6,7 @@ import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { desktopInstallAnchor } from './install-anchor.ts'
 import * as desktopOffice from './office.ts'
 
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
@@ -13,7 +14,7 @@ import { installDesktopUpdateTaskControl } from './update-tasks.ts'
 async function main(): Promise<void> {
   const runtimeDir = process.argv[2] as string
   const projectDir = process.argv[3] as string
-  const installAnchor = join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
+  const installAnchor = desktopInstallAnchor(runtimeDir)
   const profile = loadProfileDirectory('dsh', projectDir, installAnchor)
   const application = runProfile({
     environment: loadLayeredEnv('dsh'),
