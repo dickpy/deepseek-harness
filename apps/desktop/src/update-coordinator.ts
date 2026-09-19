@@ -64,7 +64,9 @@ export class DesktopUpdateCoordinator {
     }
     this.updater.autoDownload = false
     this.updater.autoInstallOnAppQuit = false
-    this.updater.channel = 'nightly'
+    // fork: 更新通道不再在此硬编码。electron-updater 会读取打包写入的 App 配置
+    // （app-update.yml）：企业源为 latest，官方测试/正式源为 nightly。赋值会覆盖它。
+    // The channel comes from the packaged app-update.yml; assigning it here would override it.
     this.updater.allowPrerelease = true
     // Selecting a channel can enable downgrade in electron-updater.
     this.updater.allowDowngrade = false

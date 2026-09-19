@@ -200,7 +200,7 @@ export async function createDesktopUploadPlan(
     throw new Error(`desktop upload: ${targetName} package completion record does not match desktop ${desktopVersion}, dsh ${dshVersion} and ${update.environment} update destination`)
   }
 
-  const metadataFilename = desktopUpdateMetadataFilename(desktopVersion, target.platform)
+  const metadataFilename = desktopUpdateMetadataFilename(desktopVersion, target.platform, update.channel)
   const metadataPath = join(artifactsRoot, metadataFilename)
   let metadataValue: unknown
   try {
@@ -257,8 +257,10 @@ export async function createDesktopUploadPlan(
   artifacts.push(channelArtifact)
   // fork: 频道跟着产品版本走（产物名与元数据名同源），dsh 版本只用于校验运行时。
   if (prerelease(desktopVersion) === null) {
-    const stableFilename = metadataFilename.replace('nightly', 'latest')
-    artifacts.push({ ...channelArtifact, filename: stableFilename, key: `${update.keyPrefix}/${stableFilename}` })
+    const stableFilename = desktopUpdateMetadataFilename(desktopVersion, target.platform, 'latest')
+    if (stableFilename !== metadataFilename) {
+      artifacts.push({ ...channelArtifact, filename: stableFilename, key: `${update.keyPrefix}/${stableFilename}` })
+    }
   }
   return {
     environment: update.environment,

@@ -144,9 +144,11 @@ describe('desktop update coordinator', () => {
       'available', 'downloading', 'downloading', 'verifying', 'ready', 'installing',
     ])
     expect(f.updater).toMatchObject({
-      autoDownload: false, autoInstallOnAppQuit: false, channel: 'nightly',
+      autoDownload: false, autoInstallOnAppQuit: false,
       allowPrerelease: true, allowDowngrade: false,
     })
+    // fork: 通道由打包写入 app-update.yml 的 channel 决定，协调器不得覆盖。
+    expect(f.updater.channel).toBeUndefined()
   })
 
   it('joins checks and downloads without retargeting a prepared release', async () => {

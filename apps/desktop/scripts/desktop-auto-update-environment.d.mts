@@ -7,6 +7,9 @@ export type DesktopAutoUpdateEnvironment = 'test' | 'production' | 'enterprise'
 /** Directory name of one supported Desktop release target. */
 export type DesktopAutoUpdateTarget = 'mac-arm64' | 'mac-x64' | 'win-x64'
 
+/** Update channel published beside one release target. */
+export type DesktopUpdateChannel = 'latest' | 'nightly'
+
 /** 发布产物的文件名前缀，与 electron-builder 的 `artifactName` 共用。 */
 export const DESKTOP_ARTIFACT_PREFIX: string
 
@@ -23,6 +26,7 @@ export function desktopArtifactBasename(version: string, os: string, arch: strin
 export interface DesktopAutoUpdateConfig {
   readonly environment: DesktopAutoUpdateEnvironment
   readonly target: DesktopAutoUpdateTarget
+  readonly channel: DesktopUpdateChannel
   readonly origin: string
   readonly publicUrl: string
   readonly keyPrefix: string
@@ -38,6 +42,7 @@ export type DesktopCosUploadEnvironment = 'test' | 'production'
 export interface DesktopUploadConfig {
   readonly environment: DesktopCosUploadEnvironment
   readonly target: DesktopAutoUpdateTarget
+  readonly channel: DesktopUpdateChannel
   readonly origin: string
   readonly publicUrl: string
   readonly keyPrefix: string
@@ -77,11 +82,13 @@ export function desktopBuildRecordFilename(target: DesktopAutoUpdateTarget): str
  * Return the electron-builder channel metadata filename for an application version.
  * @param version - Desktop semantic version.
  * @param platform - Target platform.
+ * @param channel - Update channel prefix; defaults to nightly.
  * @returns Channel metadata filename emitted for the target.
  */
 export function desktopUpdateMetadataFilename(
   version: string,
   platform: NodeJS.Platform,
+  channel?: DesktopUpdateChannel,
 ): string
 
 /**

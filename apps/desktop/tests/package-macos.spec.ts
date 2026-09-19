@@ -35,6 +35,7 @@ async function fixture(arch: 'arm64' | 'x64' = 'arm64') {
   await writeFile(join(appPath, 'payload'), 'signed content')
   await writeMacOSAppUpdateConfig(join(appPath, 'Contents', 'Resources'), {
     publicUrl: `https://desktop-updates.example.com/dsh-desk/feeds/mac-${arch}/`,
+    channel: 'nightly',
   }, 'deepseek-harness-updater')
   const version = '1.2.3-alpha.1'
   // 与 package-macos.ts 共用同一个 basename 函数，产物改名前缀时测试自动跟随。

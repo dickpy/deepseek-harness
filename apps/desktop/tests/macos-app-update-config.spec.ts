@@ -10,7 +10,7 @@ import {
 } from '../scripts/macos-app-update-config.mjs'
 
 const roots: string[] = []
-const update = { publicUrl: 'https://desktop-updates.example.com/dsh-desk/feeds/mac-arm64/' }
+const update = { publicUrl: 'https://desktop-updates.example.com/dsh-desk/feeds/mac-arm64/', channel: 'nightly' } as const
 
 async function fixture(): Promise<{ appPath: string; resourcesDir: string }> {
   const root = await mkdtemp(join(tmpdir(), 'desktop-macos-update-config-'))
@@ -26,11 +26,13 @@ afterEach(async () => {
 })
 
 describe('macOS packaged updater configuration', () => {
-  it('uses the final generic Nightly provider configured for the build', () => {
+  it('uses the final generic provider and its deployment channel', () => {
     expect(resolveMacOSAppUpdateFeed([{ provider: 'generic', url: update.publicUrl, channel: 'nightly' }]))
       .toEqual(update)
+    expect(resolveMacOSAppUpdateFeed([{ provider: 'generic', url: update.publicUrl, channel: 'latest' }]))
+      .toEqual({ publicUrl: update.publicUrl, channel: 'latest' })
     for (const publish of [undefined, [], [{ provider: 'github', channel: 'nightly', url: update.publicUrl }],
-      [{ provider: 'generic', channel: 'latest', url: update.publicUrl }]]) {
+      [{ provider: 'generic', channel: 'beta', url: update.publicUrl }]]) {
       expect(() => resolveMacOSAppUpdateFeed(publish)).toThrow(/macOS update config/u)
     }
   })
@@ -50,6 +52,7 @@ describe('macOS packaged updater configuration', () => {
   it.each([
     ['missing', undefined],
     ['wrong feed', 'provider: generic\nurl: https://wrong.example.com/\nchannel: nightly\nupdaterCacheDirName: fixture\n'],
+    ['wrong channel', `provider: generic\nurl: ${update.publicUrl}\nchannel: latest\nupdaterCacheDirName: fixture\n`],
     ['missing cache directory', `provider: generic\nurl: ${update.publicUrl}\nchannel: nightly\n`],
   ] as const)('rejects %s updater configuration', async (_label, contents) => {
     const paths = await fixture()

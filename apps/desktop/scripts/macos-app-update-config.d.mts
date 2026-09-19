@@ -1,13 +1,17 @@
+/** Update channel embedded into a macOS release. */
+export type MacOSUpdateChannel = 'latest' | 'nightly'
+
 /** Resolved fields required to embed a macOS updater feed. */
 export interface MacOSAppUpdateFeed {
   readonly publicUrl: string
+  readonly channel: MacOSUpdateChannel
 }
 
 /** Packaged electron-updater configuration for macOS. */
 export interface MacOSAppUpdateConfig {
   readonly provider: 'generic'
   readonly url: string
-  readonly channel: 'nightly'
+  readonly channel: MacOSUpdateChannel
   readonly updaterCacheDirName: string
 }
 

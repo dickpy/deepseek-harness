@@ -11,6 +11,8 @@ const UPDATE_ENVIRONMENTS = {
   enterprise: {
     originEnvName: 'DSH_ENTERPRISE_UPDATE_ORIGIN',
     fixedOrigin: undefined,
+    channel: 'latest',
+    feedPath: '_/harness/desktop/stable',
     bucketEnvName: undefined,
     secretIdEnvName: undefined,
     secretKeyEnvName: undefined,
@@ -18,6 +20,8 @@ const UPDATE_ENVIRONMENTS = {
   test: {
     originEnvName: 'DOWNLOAD_TEST_ORIGIN',
     fixedOrigin: undefined,
+    channel: 'nightly',
+    feedPath: 'dsh-desk/feeds',
     bucketEnvName: 'DOWNLOAD_TEST_COS_BUCKET',
     secretIdEnvName: 'DOWNLOAD_TEST_COS_SECRET_ID',
     secretKeyEnvName: 'DOWNLOAD_TEST_COS_SECRET_KEY',
@@ -25,6 +29,8 @@ const UPDATE_ENVIRONMENTS = {
   production: {
     originEnvName: undefined,
     fixedOrigin: 'https://download.deepseek.com',
+    channel: 'nightly',
+    feedPath: 'dsh-desk/feeds',
     bucketEnvName: 'DOWNLOAD_PROD_COS_BUCKET',
     secretIdEnvName: 'DOWNLOAD_PROD_COS_SECRET_ID',
     secretKeyEnvName: 'DOWNLOAD_PROD_COS_SECRET_KEY',
@@ -32,6 +38,8 @@ const UPDATE_ENVIRONMENTS = {
 }
 
 const UPDATE_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64'])
+
+const UPDATE_CHANNELS = new Set(['latest', 'nightly'])
 
 /**
  * 维小智发布产物的文件名前缀。
@@ -96,16 +104,20 @@ export function desktopBuildRecordFilename(target) {
  * Return the electron-builder channel metadata filename for an application version.
  * @param {string} version - Desktop semantic version.
  * @param {NodeJS.Platform} platform - Target platform.
+ * @param {string} [channel] - Update channel prefix, for example 'latest' or 'nightly'.
  * @returns {string} Channel metadata filename emitted for the target.
  */
-export function desktopUpdateMetadataFilename(version, platform) {
+export function desktopUpdateMetadataFilename(version, platform, channel = 'nightly') {
   if (valid(version) === null) {
     throw new Error(`desktop auto-update: invalid Desktop version ${JSON.stringify(version)}`)
   }
   if (platform !== 'darwin' && platform !== 'win32') {
     throw new Error(`desktop auto-update: unsupported metadata platform ${platform}`)
   }
-  return `nightly${platform === 'darwin' ? '-mac' : ''}.yml`
+  if (!UPDATE_CHANNELS.has(channel)) {
+    throw new Error(`desktop auto-update: unsupported update channel ${JSON.stringify(channel)}`)
+  }
+  return `${channel}${platform === 'darwin' ? '-mac' : ''}.yml`
 }
 
 /**
@@ -152,7 +164,7 @@ function httpsOrigin(value, name) {
  * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
  * @param {NodeJS.Platform} platform - Target Node.js platform.
  * @param {string} arch - Target Node.js architecture.
- * @returns {{ environment: 'test' | 'production', target: 'mac-arm64' | 'mac-x64' | 'win-x64', origin: string, publicUrl: string, keyPrefix: string }} Resolved updater configuration.
+ * @returns {{ environment: 'test' | 'production' | 'enterprise', target: 'mac-arm64' | 'mac-x64' | 'win-x64', channel: string, origin: string, publicUrl: string, keyPrefix: string }} Resolved updater configuration.
  * @throws {Error} When the test deployment lacks a valid HTTPS origin.
  */
 export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
@@ -165,10 +177,11 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
     if (originEnvName === undefined) throw new Error('desktop auto-update: selected deployment has no origin')
     origin = httpsOrigin(requiredEnvironmentValue(env, originEnvName), originEnvName)
   }
-  const keyPrefix = `dsh-desk/feeds/${target}`
+  const keyPrefix = `${deployment.feedPath}/${target}`
   return {
     environment,
     target,
+    channel: deployment.channel,
     origin,
     keyPrefix,
     publicUrl: `${origin}/${keyPrefix}/`,
@@ -180,7 +193,7 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
  * @param {NodeJS.ProcessEnv} env - Upload environment.
  * @param {NodeJS.Platform} platform - Target Node.js platform.
  * @param {string} arch - Target Node.js architecture.
- * @returns {{ environment: 'test' | 'production', target: 'mac-arm64' | 'mac-x64' | 'win-x64', origin: string, publicUrl: string, keyPrefix: string, bucket: string, secretIdEnvName: string, secretKeyEnvName: string }} Resolved upload configuration.
+ * @returns {{ environment: 'test' | 'production', target: 'mac-arm64' | 'mac-x64' | 'win-x64', channel: string, origin: string, publicUrl: string, keyPrefix: string, bucket: string, secretIdEnvName: string, secretKeyEnvName: string }} Resolved upload configuration.
  * @throws {Error} When the selected deployment lacks a required origin or bucket, or the test origin is not HTTPS.
  */
 export function resolveDesktopUploadConfig(env, platform, arch) {
