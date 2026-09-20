@@ -73,12 +73,17 @@ function mirrorDependencyLinks(sourceRoot: string, destinationRoot: string): str
       mkdirSync(join(destinationRoot, entry.name), { recursive: true })
       for (const scoped of readdirSync(source, { withFileTypes: true })) {
         if (!scoped.isDirectory() && !scoped.isSymbolicLink()) continue
-        linkDirectory(join(source, scoped.name), join(destinationRoot, entry.name, scoped.name))
+        const scopedSource = join(source, scoped.name)
+        // pnpm can leave a broken link after a workspace package is removed.
+        // Mirror only resolvable packages so the disposable project stays usable.
+        if (!existsSync(join(scopedSource, 'package.json'))) continue
+        linkDirectory(scopedSource, join(destinationRoot, entry.name, scoped.name))
         names.push(`${entry.name}/${scoped.name}`)
       }
       continue
     }
     if (entry.isDirectory() || entry.isSymbolicLink()) {
+      if (!existsSync(join(source, 'package.json'))) continue
       linkDirectory(source, join(destinationRoot, entry.name))
       names.push(entry.name)
     }

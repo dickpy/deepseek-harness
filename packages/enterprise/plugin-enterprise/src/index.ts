@@ -18,14 +18,15 @@
  * 依赖的服务（dsh-base 默认提供）：`settings`、`credentials`。
  *
  * schemastery 经 pnpm override 解析到仓库内置的 vendor/schemastery。
- * 本插件不 import 任何 dsh 包——服务在运行时按 key 注入，类型用最小结构面描述，
- * 以便独立构建与安装（对齐 docs/user/develop/basic/publish.md 的外部插件契约）。
+ * External services are injected by key; MCP connectors reuse the dsh-mcp-client contract.
+ * Other boundaries stay structural so the plugin can still be built and installed independently.
  */
 
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import z from '@deepseek-ai/schemastery'
+import * as McpClient from '@deepseek-ai/dsh-mcp-client'
 
 export interface EnterpriseConfig {
   serverUrl: string
@@ -124,6 +125,14 @@ interface TelemetryEvent {
 }
 
 /** 运行时按 key 注入的最小服务面（真实实现来自 dsh-base） */
+interface FiberLike {
+  dispose(): Promise<void> | void
+}
+
+interface PluginFiber extends PromiseLike<FiberLike> {
+  dispose(): Promise<void> | void
+}
+
 interface EnterpriseCtx {
   settings: {
     update(ns: string, patch: object): Promise<void>
@@ -134,6 +143,7 @@ interface EnterpriseCtx {
       options?: { base?: unknown },
     ): SettingsScopeLike
   }
+  plugin(plugin: unknown, config?: unknown): PluginFiber
   inject(names: string[], callback: (ctx: EnterpriseCtx) => void): void
   credentials: {
     resolve(ref: string): Promise<{ value?: string } | undefined>
@@ -189,12 +199,46 @@ const homeCategorySchema = z.object({
   actions: z.array(homeActionSchema).default([]),
 })
 
+/** One text file in a user-uploaded skill bundle. */
+interface UserSkillFile {
+  path: string
+  content: string
+  encoding?: 'utf8' | 'base64'
+}
+
+/** A complete user-uploaded skill package. */
+interface UserSkillUpload {
+  name: string
+  displayName: string
+  description: string
+  version: string
+  files: UserSkillFile[]
+  installed?: boolean
+}
+
+/** One user-defined MCP connector. */
+interface ConnectorSummary {
+  name: string
+  transport: 'stdio' | 'streamable-http'
+  description: string
+  command: string
+  args: string[]
+  url: string
+  env: Record<string, string>
+  headers: Record<string, string>
+  enabled: boolean
+}
+
 interface SessionSettings {
   serverUrl: string
   user: { email: string; name: string; role: string }
   menus: string[]
   agents: string[]
   plugins: string[]
+  /** Local skills uploaded by the user. */
+  userSkills: UserSkillUpload[]
+  /** User-defined MCP connectors mounted by the host. */
+  connectors: ConnectorSummary[]
   /**
    * 技能广场里已发布的技能（元数据，正文在桌面端本机 skills 目录）。
    * 客户端「技能广场」页面直接展示这一份清单，不再需要自己扫盘。
@@ -236,6 +280,33 @@ const skillSummarySchema = z.object({
   fileCount: z.number().default(0),
   installed: z.boolean().default(false),
 })
+const userSkillFileSchema = z.object({
+  path: z.string().default(''),
+  content: z.string().default(''),
+  encoding: z.string().default('utf8'),
+})
+
+const userSkillSchema = z.object({
+  name: z.string().default(''),
+  displayName: z.string().default(''),
+  description: z.string().default(''),
+  version: z.string().default(''),
+  files: z.array(userSkillFileSchema).default([]),
+  installed: z.boolean().default(false),
+})
+
+const connectorSchema = z.object({
+  name: z.string().default(''),
+  transport: z.string().default('stdio'),
+  description: z.string().default(''),
+  command: z.string().default(''),
+  args: z.array(z.string()).default([]),
+  env: z.dict(z.string()).default({}),
+  url: z.string().default(''),
+  headers: z.dict(z.string()).default({}),
+  enabled: z.boolean().default(true),
+})
+
 
 /** 首页样例里的「相关产物」 */
 const homeExampleArtifactSchema = z.object({
@@ -267,6 +338,8 @@ const sessionSchema = z.object({
   agents: z.array(z.string()).default([]),
   plugins: z.array(z.string()).default([]),
   skills: z.array(skillSummarySchema).default([]),
+  userSkills: z.array(userSkillSchema).default([]),
+  connectors: z.array(connectorSchema).default([]),
   // 客户端「技能广场」的开关写入这里；host 据此过滤模型可见的技能目录。
   // 名字列表（而不是对象）是为了让客户端只需要一次 set/unset 就能落一人份的偏好。
   disabledSkills: z.array(z.string()).default([]),
@@ -374,17 +447,19 @@ async function sync(ctx: EnterpriseCtx, config: EnterpriseConfig, token: string)
   // 首页目录要区分「平台没配过」（字段缺省）与「管理员删空了」（空数组）：
   // 服务端未下发的字段不回写，避免把已下发的目录清掉。
   const homeProvided = Object.hasOwn(cloud, 'home') && Array.isArray(cloud.home)
+  const section = ctx.settings.get(SESSION_SETTINGS_NS) as Partial<SessionSettings> | undefined
+  const userSkillNames = new Set(readUserSkills(section).map(skill => skill.name))
   const installed = config.syncSkills
-    ? await syncSkills(config, token, cloud.skills ?? [])
+    ? await syncSkills(config, token, cloud.skills ?? [], userSkillNames)
     : []
   // 开关状态与磁盘对齐：刚下发/刚被重写的技能要把当前开关重新写回去，
   // 用户手动改过的技能文件也在这一轮自愈。开关清单从设置文档现读——
   // `sync` 是模块级函数，拿不到 apply 里那份 scope 句柄。
-  if (config.syncSkills && installed.length > 0) {
-    const section = ctx.settings.get(SESSION_SETTINGS_NS) as Partial<SessionSettings> | undefined
+  const managedSkills = [...new Set([...installed, ...userSkillNames])]
+  if (config.syncSkills && managedSkills.length > 0) {
     await reconcileSkillActivation(
       join(resolveDshHome(), 'skills'),
-      installed,
+      managedSkills,
       readDisabledSkills(section),
     ).catch((e: unknown) => { log('技能启用状态对齐失败（下个周期重试）：', e) })
   }
@@ -460,6 +535,8 @@ async function sync(ctx: EnterpriseCtx, config: EnterpriseConfig, token: string)
 
 /** 落盘清单文件名（位于 `$DSH_HOME`） */
 const SKILL_MANIFEST = 'enterprise-skills.json'
+/** User-uploaded skills use a separate manifest so enterprise cleanup cannot delete them. */
+const USER_SKILL_MANIFEST = 'enterprise-user-skills.json'
 
 /** 技能名语法（与 dsh 的 `isSkillName` 一致）；同时用作目录名，必须先校验 */
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -486,9 +563,9 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-async function readSkillManifest(home: string): Promise<SkillManifest> {
+async function readSkillManifest(home: string, fileName = SKILL_MANIFEST): Promise<SkillManifest> {
   try {
-    const parsed = JSON.parse(await readFile(join(home, SKILL_MANIFEST), 'utf8')) as {
+    const parsed = JSON.parse(await readFile(join(home, fileName), 'utf8')) as {
       skills?: unknown
     }
     if (typeof parsed?.skills !== 'object' || parsed.skills === null) return { version: 1, skills: {} }
@@ -504,9 +581,9 @@ async function readSkillManifest(home: string): Promise<SkillManifest> {
   }
 }
 
-async function writeSkillManifest(home: string, manifest: SkillManifest): Promise<void> {
+async function writeSkillManifest(home: string, manifest: SkillManifest, fileName = SKILL_MANIFEST): Promise<void> {
   await mkdir(home, { recursive: true })
-  await writeFile(join(home, SKILL_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  await writeFile(join(home, fileName), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 }
 
 /** 附属文件路径必须是技能目录内的相对路径（防 `..` 越界写盘） */
@@ -558,24 +635,83 @@ async function materializeSkill(skillsRoot: string, bundle: SkillBundle): Promis
  * @param summaries - 云端下发、已按当前用户角色过滤的技能清单。
  * @returns 本次同步后确认已落盘（SKILL.md 存在）的技能名，供客户端「技能广场」标注安装状态。
  */
+/**
+ * Materialize user-uploaded skills and remove only directories recorded in the
+ * user-skill manifest. Enterprise skills use a different manifest, so ordinary
+ * removal cannot erase an enterprise package.
+ *
+ * @param home - resolved DSH home directory.
+ * @param uploads - raw userSkills array from the active settings section.
+ * @returns names that were written successfully and have a SKILL.md.
+ */
+async function syncUserSkills(home: string, uploads: readonly UserSkillUpload[]): Promise<string[]> {
+  const skillsRoot = join(home, 'skills')
+  const manifest = await readSkillManifest(home, USER_SKILL_MANIFEST)
+  const desired = new Map<string, UserSkillUpload>()
+  for (const upload of uploads) {
+    if (!SKILL_NAME.test(upload.name) || desired.has(upload.name)) continue
+    desired.set(upload.name, upload)
+  }
+  const next: Record<string, string> = {}
+  const ready: string[] = []
+  for (const [name, upload] of desired) {
+    const entry = upload.files.find(file => file.path.toLowerCase() === 'skill.md')
+    if (entry === undefined || !isSafeSkillPath(entry.path) || entry.encoding === 'base64') {
+      log(`user skill ${name} has no text SKILL.md; skipped`)
+      continue
+    }
+    try {
+      await materializeSkill(skillsRoot, {
+        name,
+        version: upload.version,
+        content: entry.content,
+        files: upload.files,
+      })
+      next[name] = upload.version
+      ready.push(name)
+    } catch (e) {
+      log(`user skill ${name} failed to materialize; retrying on settings change:`, e)
+    }
+  }
+  for (const name of Object.keys(manifest.skills)) {
+    if (desired.has(name)) continue
+    try {
+      await rm(join(skillsRoot, name), { recursive: true, force: true })
+    } catch (e) {
+      log(`user skill ${name} failed to materialize; retrying on settings change:`, e)
+    }
+  }
+  if (JSON.stringify(next) !== JSON.stringify(manifest.skills)) {
+    await writeSkillManifest(home, { version: 1, skills: next }, USER_SKILL_MANIFEST)
+  }
+  return ready
+}
+
 async function syncSkills(
   config: EnterpriseConfig,
   token: string,
   summaries: readonly SkillSummary[],
+  userSkillNames: ReadonlySet<string> = new Set(),
 ): Promise<string[]> {
   const home = resolveDshHome()
   const skillsRoot = join(home, 'skills')
   const manifest = await readSkillManifest(home)
   const assigned = new Map(summaries.map(summary => [summary.name, summary.version]))
-  // 清单只保留仍然授权、且本轮会重新确认的技能；被撤销授权的条目在下面删目录时
-  // 一并从清单里消失（不按键删除，清单顺序与逐键 delete 的结果一致）。
+  // 清单只保留仍然授权、非用户上传、且本轮会重新确认的技能；被撤销授权的条目在
+  // 下面删目录时一并从清单里消失。
   const next: Record<string, string> = Object.fromEntries(
-    Object.entries(manifest.skills).filter(([name]) => assigned.has(name)),
+    Object.entries(manifest.skills).filter(([name]) => assigned.has(name) && !userSkillNames.has(name)),
   )
   const ready: string[] = []
   let installed = 0
 
   for (const [name, version] of assigned) {
+    // User uploads win name collisions. Removing the enterprise manifest row
+    // lets a later cloud sync restore the enterprise package after deletion.
+    if (userSkillNames.has(name)) {
+      ready.push(name)
+      continue
+    }
     if (!SKILL_NAME.test(name)) {
       log(`云端下发了不合法的技能名，已跳过：${name}`)
       continue
@@ -617,7 +753,170 @@ async function syncSkills(
   return ready
 }
 
-/** 设置文档桥的发布函数（apply 内注入）；sync 流程调用它把会话数据推给客户端 */
+
+/** Decode a string dictionary without invoking Object.prototype setters. */
+function readStringRecord(value: unknown): Record<string, string> {
+  const result = Object.create(null) as Record<string, string>
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return result
+  for (const [key, entry] of Object.entries(value)) {
+    if (key !== '' && typeof entry === 'string') result[key] = entry
+  }
+  return result
+}
+
+/** Read and validate user-uploaded skills from an untrusted settings value. */
+function readUserSkills(value: Partial<SessionSettings> | null | undefined): UserSkillUpload[] {
+  if (!Array.isArray(value?.userSkills)) return []
+  const uploads: UserSkillUpload[] = []
+  const seen = new Set<string>()
+  for (const entry of value.userSkills) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const record = entry as unknown as Record<string, unknown>
+    const name = record.name
+    if (typeof name !== 'string' || !SKILL_NAME.test(name) || seen.has(name)) continue
+    if (!Array.isArray(record.files)) continue
+    const files: UserSkillFile[] = []
+    for (const file of record.files) {
+      if (typeof file !== 'object' || file === null) continue
+      const item = file as Record<string, unknown>
+      if (typeof item.path !== 'string' || !isSafeSkillPath(item.path) || typeof item.content !== 'string') continue
+      files.push({
+        path: item.path,
+        content: item.content,
+        encoding: item.encoding === 'base64' ? 'base64' : 'utf8',
+      })
+    }
+    if (!files.some(file => file.path.toLowerCase() === 'skill.md')) continue
+    seen.add(name)
+    uploads.push({
+      name,
+      displayName: typeof record.displayName === 'string' && record.displayName !== '' ? record.displayName : name,
+      description: typeof record.description === 'string' ? record.description : '',
+      version: typeof record.version === 'string' ? record.version : '',
+      files,
+      installed: record.installed === true,
+    })
+  }
+  return uploads
+}
+
+/** Read and validate user-defined MCP connectors. */
+function readConnectors(value: Partial<SessionSettings> | null | undefined): ConnectorSummary[] {
+  if (!Array.isArray(value?.connectors)) return []
+  const connectors: ConnectorSummary[] = []
+  const seen = new Set<string>()
+  for (const entry of value.connectors) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const record = entry as unknown as Record<string, unknown>
+    const name = record.name
+    if (typeof name !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(name) || seen.has(name)) continue
+    const transport: ConnectorSummary['transport'] = record.transport === 'streamable-http'
+      ? 'streamable-http' : 'stdio'
+    const command = typeof record.command === 'string' ? record.command.trim() : ''
+    const url = typeof record.url === 'string' ? record.url.trim() : ''
+    if (transport === 'stdio' ? command === '' : url === '') continue
+    const args = Array.isArray(record.args)
+      ? record.args.filter((item): item is string => typeof item === 'string')
+      : []
+    seen.add(name)
+    connectors.push({
+      name,
+      transport,
+      description: typeof record.description === 'string' ? record.description : '',
+      command,
+      args,
+      env: readStringRecord(record.env),
+      url,
+      headers: readStringRecord(record.headers),
+      enabled: record.enabled !== false,
+    })
+  }
+  return connectors
+}
+
+/** Owns live mcp-client fibers and applies desired-state changes serially. */
+class ConnectorMounts {
+  private readonly mounted = new Map<string, { signature: string; fiber: FiberLike }>()
+  private queue: Promise<void> = Promise.resolve()
+
+  constructor(private readonly ctx: EnterpriseCtx) {}
+
+  /**
+   * Reconcile enabled MCP servers with the current settings snapshot.
+   * @param connectors - every configured connector; disabled entries are ignored.
+   * @returns resolution after all changed mounts have settled.
+   */
+  update(connectors: readonly ConnectorSummary[]): Promise<void> {
+    const job = this.queue.then(() => this.apply(connectors))
+    this.queue = job.catch((error: unknown) => { log('MCP connector sync failed; retrying on settings change:', error) })
+    return job
+  }
+
+  /** Dispose every mounted MCP client owned by this enterprise plugin. */
+  async dispose(): Promise<void> {
+    const job = this.queue.then(() => this.disposeAll())
+    this.queue = job.catch((error: unknown) => { log('MCP connector cleanup failed:', error) })
+    await job
+  }
+
+  private async apply(connectors: readonly ConnectorSummary[]): Promise<void> {
+    const desired = new Map(connectors.filter(item => item.enabled).map(item => [item.name, item]))
+    for (const [name, mounted] of [...this.mounted]) {
+      const next = desired.get(name)
+      if (next !== undefined && mounted.signature === JSON.stringify(this.configOf(next))) continue
+      try {
+        await mounted.fiber.dispose()
+      } catch (error) {
+        log(`MCP connector ${name} unmount failed:`, error)
+      }
+      this.mounted.delete(name)
+    }
+    for (const [name, connector] of desired) {
+      if (this.mounted.has(name)) continue
+      const config = this.configOf(connector)
+      try {
+        const fiber = await this.ctx.plugin(McpClient, config)
+        this.mounted.set(name, { signature: JSON.stringify(config), fiber })
+      } catch (error) {
+        log(`MCP connector ${name} mount failed; continuing with others:`, error)
+      }
+    }
+  }
+
+  private configOf(connector: ConnectorSummary): McpClient.Config {
+    return connector.transport === 'streamable-http'
+      ? {
+        transport: 'streamable-http',
+        serverName: connector.name,
+        url: connector.url,
+        headers: { ...connector.headers },
+        toolCallTimeoutMs: 60_000,
+        failOnStartupError: false,
+      }
+      : {
+        transport: 'stdio',
+        serverName: connector.name,
+        command: connector.command,
+        args: [...connector.args],
+        env: { ...connector.env },
+        cwd: '',
+        toolCallTimeoutMs: 60_000,
+        failOnStartupError: false,
+      }
+  }
+
+  private async disposeAll(): Promise<void> {
+    for (const [name, mounted] of [...this.mounted]) {
+      try {
+        await mounted.fiber.dispose()
+      } catch (error) {
+        log(`MCP connector ${name} cleanup failed:`, error)
+      }
+      this.mounted.delete(name)
+    }
+  }
+}
+
 let publishSessionRef: ((session: Partial<SessionSettings>) => Promise<void>) | null = null
 
 // ---------------------------------------------------------------------------
@@ -729,31 +1028,6 @@ async function reconcileSkillActivation(
 }
 
 /**
- * 观察「技能广场」开关设置，把变化即时落到技能文件上。
- *
- * 设置桥由另一条 inject 回调安装，可能晚于本函数，所以 scope 是现取的。
- * 设置服务没有 `watch` 时静默跳过：开关仍然会在下一轮同步（默认 60s）生效。
- *
- * @param getScope - 现取设置桥 scope。
- */
-function watchSkillActivation(getScope: () => SettingsScopeLike | null): void {
-  const scope = getScope()
-  if (scope?.watch === undefined) {
-    log('设置服务未提供 watch，「技能广场」开关将在下一轮云端同步时生效')
-    return
-  }
-  scope.watch((next) => {
-    const value = next as Partial<SessionSettings> | undefined
-    const assigned = (value?.skills ?? []).filter(skill => skill.installed).map(skill => skill.name)
-    return reconcileSkillActivation(
-      join(resolveDshHome(), 'skills'),
-      assigned,
-      readDisabledSkills(value),
-    ).then(() => undefined)
-  })
-}
-
-/**
  * 从设置节里读出用户关掉的技能名。
  * @param value - 设置节（可能尚未就绪）。
  * @returns 合法的 kebab-case 技能名集合。
@@ -849,7 +1123,7 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
   let timer: ReturnType<typeof setInterval> | null = null
   let syncTimer: ReturnType<typeof setInterval> | null = null
   // 设置文档桥：客户端从这里读企业身份与菜单
-  let sessionScope: { replace(section: object): Promise<void>; get(): unknown } | null = null
+  let sessionScope: SettingsScopeLike | null = null
 
   const publishSession = async (session: Partial<SessionSettings>): Promise<void> => {
     if (sessionScope === null) return
@@ -864,6 +1138,8 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
       agents: session.agents ?? current.agents ?? [],
       plugins: session.plugins ?? current.plugins ?? [],
       skills: session.skills ?? current.skills ?? [],
+      userSkills: session.userSkills ?? current.userSkills ?? [],
+      connectors: session.connectors ?? current.connectors ?? [],
       // `replace` 会整段覆盖用户层，所以客户端写的开关必须原样带回：
       // 漏掉这一行，用户每关一个技能都会在下一次云端同步（默认 60s）被打开。
       disabledSkills: session.disabledSkills ?? current.disabledSkills ?? [],
@@ -889,6 +1165,36 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
     }
   }
 
+  const connectorMounts = new ConnectorMounts(enterpriseCtx)
+  let watchStop: (() => void) | null = null
+  let managedQueue: Promise<void> = Promise.resolve()
+
+  const reconcileManagedState = async (value: Partial<SessionSettings> | null | undefined): Promise<void> => {
+    const uploads = readUserSkills(value)
+    await connectorMounts.update(readConnectors(value))
+    const installed = await syncUserSkills(resolveDshHome(), uploads)
+    const enterpriseInstalled = (value?.skills ?? [])
+      .filter(skill => skill.installed && SKILL_NAME.test(skill.name))
+      .map(skill => skill.name)
+    await reconcileSkillActivation(
+      join(resolveDshHome(), 'skills'),
+      [...new Set([...enterpriseInstalled, ...installed])],
+      readDisabledSkills(value),
+    )
+    const installedNames = new Set(installed)
+    if (uploads.some(upload => (upload.installed === true) !== installedNames.has(upload.name))) {
+      await publishSession({
+        userSkills: uploads.map(upload => ({ ...upload, installed: installedNames.has(upload.name) })),
+      })
+    }
+  }
+
+  const scheduleManagedState = (value: Partial<SessionSettings> | null | undefined): Promise<void> => {
+    const job = managedQueue.then(() => reconcileManagedState(value))
+    managedQueue = job.catch((error: unknown) => { log('local skill and connector sync failed:', error) })
+    return job
+  }
+
   publishSessionRef = publishSession
 
   enterpriseCtx.inject(['settings'], (settingsCtx: EnterpriseCtx) => {
@@ -906,6 +1212,8 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
             agents: [],
             plugins: [],
             skills: [],
+            userSkills: [],
+            connectors: [],
             disabledSkills: [],
             examples: [],
             configRevision: 0,
@@ -914,7 +1222,12 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
         },
       )
       void publishSession({})
-      watchSkillActivation(() => sessionScope)
+      void scheduleManagedState(sessionScope.get() as Partial<SessionSettings>)
+      if (sessionScope.watch === undefined) {
+        log('settings service has no watch; local skills and connectors sync on next startup')
+      } else {
+        watchStop = sessionScope.watch(next => scheduleManagedState(next as Partial<SessionSettings>))
+      }
     } catch (e) {
       log('安装 dsh-enterprise 设置节失败：', e)
     }
@@ -966,5 +1279,7 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
   ctx.effect(() => () => {
     if (timer) clearInterval(timer)
     if (syncTimer) clearInterval(syncTimer)
+    watchStop?.()
+    void connectorMounts.dispose()
   }, 'dsh-enterprise:cleanup')
 }

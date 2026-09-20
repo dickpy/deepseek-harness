@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   EnterpriseSessionStore,
+  decodeConnectors,
   decodeDisabledSkills,
   decodeSkills,
+  decodeUserSkills,
   type EnterpriseSection,
 } from '../src/client/enterprise-store.ts'
 import { decodeExamples, exampleDraft } from '../src/client/home-examples.ts'
@@ -266,5 +268,58 @@ describe('home examples', () => {
     const other = new EnterpriseSessionStore(empty.scope)
     await other.load()
     expect(other.store.getSnapshot().examples).toEqual([])
+  })
+})
+
+
+describe('user skills and MCP connectors', () => {
+  const upload = {
+    name: 'my-skill',
+    displayName: 'My skill',
+    description: 'Created locally',
+    version: '1.0.0',
+    files: [
+      { path: 'SKILL.md', content: '# My skill', encoding: 'utf8' as const },
+      { path: '../escape.md', content: 'bad', encoding: 'utf8' as const },
+    ],
+    installed: false,
+  }
+
+  it('decodes safe user-uploaded skills and hides an enterprise skill with the same name', async () => {
+    const decoded = decodeUserSkills([upload])
+    expect(decoded).toHaveLength(1)
+    expect(decoded[0]?.files.map(file => file.path)).toEqual(['SKILL.md'])
+
+    const { scope } = fakeScope({
+      skills: [{ name: 'my-skill', displayName: 'Enterprise copy', description: '', version: '2.0.0' }],
+      userSkills: [upload],
+    })
+    const store = new EnterpriseSessionStore(scope)
+    await store.load()
+    const skills = store.store.getSnapshot().skills
+    expect(skills.map(skill => [skill.name, skill.source])).toEqual([['my-skill', 'user']])
+    expect(skills[0]?.enabled).toBe(true)
+  })
+
+  it('decodes connectors and writes connector changes to the dedicated field', async () => {
+    const connector = {
+      name: 'local_mcp',
+      transport: 'stdio' as const,
+      description: 'Local',
+      command: 'node',
+      args: ['server.mjs'],
+      env: { TOKEN: 'x' },
+      url: '',
+      headers: {},
+      enabled: true,
+    }
+    expect(decodeConnectors([connector, { ...connector, name: 'Bad Name' }])).toEqual([connector])
+
+    const { scope, writes } = fakeScope({ connectors: [connector] })
+    const store = new EnterpriseSessionStore(scope)
+    await store.load()
+    await store.setConnectorEnabled('local_mcp', false)
+    expect(writes.at(-1)).toMatchObject({ field: 'connectors' })
+    expect(store.store.getSnapshot().connectors[0]?.enabled).toBe(false)
   })
 })

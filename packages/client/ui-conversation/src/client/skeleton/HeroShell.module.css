@@ -39,6 +39,18 @@
 }
 
 /* 「预览版」徽标：跟随问候语的基线，弱化底色，不抢主体视觉。 */
+.brandLogo {
+  flex: none;
+  border-radius: 11px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.1);
+}
+
+/* Inspira Line Shadow Text style, implemented without a runtime dependency. */
+.headlineText {
+  position: relative;
+  display: inline-block;
+}
+
 .previewBadge {
   flex: none;
   padding: 1px 6px;

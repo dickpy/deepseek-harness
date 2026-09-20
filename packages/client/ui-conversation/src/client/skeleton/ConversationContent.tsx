@@ -39,6 +39,7 @@ export function ConversationContent(props: ConversationContentProps) {
 
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState<WorkspaceId | undefined>()
+  const [homeCategoryId, setHomeCategoryId] = useState<string | undefined>()
   const pickerAnchor = useRef<HTMLButtonElement>(null)
 
   // Publishes the two live measurements floating View chrome reads off the
@@ -127,6 +128,23 @@ export function ConversationContent(props: ConversationContentProps) {
     </div>
   )
 
+  // The two enterprise catalog surfaces share one selected category: the tabs
+  // stay in the greeting chrome while the selected skill chips mount inside
+  // the composer card's top edge. Passing the same owner values keeps the two
+  // halves in lockstep without making either component own the other.
+  const heroCatalog = hero
+    ? renderSlot('conversation.hero.catalog', {
+      activeId: homeCategoryId,
+      onActive: setHomeCategoryId,
+    })
+    : null
+  const heroSkills = hero
+    ? renderSlot('conversation.composer.hero.skills', {
+      activeId: homeCategoryId,
+      onActive: setHomeCategoryId,
+    })
+    : null
+
   // The placeholder chip ("Choose workspace") and the Workspace-trigger input travel
   // together: no workspace picked yet (cold start, no session at all), or a
   // blank session whose workspace vanished (deleted from the sidebar). The
@@ -156,10 +174,13 @@ export function ConversationContent(props: ConversationContentProps) {
 
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
-      {hero && <HeroShell t={t} renderSlot={renderSlot} />}
-      {hero && heroWorkspaceRow}
+      {hero && <HeroShell t={t} catalog={heroCatalog} />}
       {zone !== undefined && renderSlot('conversation.input.dock', zone)}
+      {hero && heroSkills !== null && heroSkills !== undefined && (
+        <div className={css.heroSkillsRow}>{heroSkills}</div>
+      )}
       {inputBar}
+      {hero && heroWorkspaceRow}
       {/* fork: 首页样例区（ui-enterprise 注入）：`hero.gallery` 只在空白会话渲染，
           而且排在输入卡片**下面**——案例卡片再多也不会把输入框顶下去。 */}
       {hero && renderSlot('conversation.hero.gallery', {})}

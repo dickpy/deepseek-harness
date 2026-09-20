@@ -3,7 +3,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { CommandContribution, CommandUiContract } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { ISession, SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import {
   SlotTestRuntime, stubSettingsScope, usePinnedBrowserLanguages,
 } from '@deepseek-ai/dsh-client-test-runtime'
@@ -132,7 +132,7 @@ async function bench() {
 }
 
 describe('Conversation inject API', () => {
-  it('owns the File action, reads its mounted composer availability, and unregisters on disposal', async () => {
+  it('owns the File action on both composer registries, reads mounted availability, and unregisters on disposal', async () => {
     const b = await bench()
     onTestFinished(() => b.runtime.dispose())
     const contributions = new Map<string, CommandContribution>()
@@ -142,38 +142,73 @@ describe('Conversation inject API', () => {
         return () => { contributions.delete(contribution.name) }
       },
     } satisfies Pick<CommandUiContract, 'register'>
+    const composerActions = new Map<string, {
+      label(): string
+      available?(session: { sessionId: SessionId }): boolean
+      run(context: { session: { sessionId: SessionId } }): void
+    }>()
+    const composerMenu = {
+      registerAction: (action: {
+        id: string
+        label(): string
+        available?(session: { sessionId: SessionId }): boolean
+        run(context: { session: { sessionId: SessionId } }): void
+      }) => {
+        composerActions.set(action.id, action)
+        return () => { composerActions.delete(action.id) }
+      },
+      launcherFor: () => createSnapshotStore<string | null>(null),
+      toggleFor: () => {},
+    }
     b.runtime.ctx.provide('commandUi', registry)
-    await vi.waitFor(() => { expect(contributions.has('file')).toBe(true) })
+    b.runtime.ctx.provide('composerMenu', composerMenu)
+    await vi.waitFor(() => {
+      expect(contributions.has('file')).toBe(true)
+      expect(composerActions.has('file')).toBe(true)
+    })
     const file = contributions.get('file')!
+    const composerFile = composerActions.get('file')!
     const target = { sessionId: ROOT }
-    expect(file.label!()).toBe('文件')
+    expect(file.label!()).toBe('添加文件')
+    expect(composerFile.label()).toBe('添加文件')
     expect(file.available(target)).toBe(false)
+    expect(composerFile.available?.(target)).toBe(false)
     expect(file.available({ sessionId: 'missing' as SessionId })).toBe(false)
     if (file.ui.kind !== 'action') throw new Error('File must be an action')
     file.ui.run({ sessionId: 'missing' as SessionId })
+    composerFile.run({ session: { sessionId: 'missing' as SessionId } })
     const keyboard = b.composerApi(ROOT).keyboard!
     const open = vi.fn()
     let available = true
     const unbind = keyboard.bindFilePicker({ open, available: () => available })
     expect(file.available(target)).toBe(true)
+    expect(composerFile.available?.(target)).toBe(true)
     file.ui.run(target)
-    expect(open).toHaveBeenCalledOnce()
+    composerFile.run({ session: target })
+    expect(open).toHaveBeenCalledTimes(2)
     available = false
     expect(file.available(target)).toBe(false)
+    expect(composerFile.available?.(target)).toBe(false)
     file.ui.run(target)
-    expect(open).toHaveBeenCalledOnce()
+    composerFile.run({ session: target })
+    expect(open).toHaveBeenCalledTimes(2)
     const replacement = vi.fn()
     const removeReplacement = keyboard.bindFilePicker({ open: replacement, available: () => true })
     unbind()
     expect(file.available(target)).toBe(true)
+    expect(composerFile.available?.(target)).toBe(true)
     file.ui.run(target)
-    expect(replacement).toHaveBeenCalledOnce()
+    composerFile.run({ session: target })
+    expect(replacement).toHaveBeenCalledTimes(2)
     removeReplacement()
     expect(file.available(target)).toBe(false)
+    expect(composerFile.available?.(target)).toBe(false)
     file.ui.run(target)
-    expect(replacement).toHaveBeenCalledOnce()
+    composerFile.run({ session: target })
+    expect(replacement).toHaveBeenCalledTimes(2)
     await b.feature.dispose()
     expect(contributions.size).toBe(0)
+    expect(composerActions.size).toBe(0)
   })
 
   it('assembles the target-neutral read face without Session side effects', async () => {

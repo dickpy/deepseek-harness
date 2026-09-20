@@ -191,7 +191,21 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * picked skill can seed the draft; without a Session the actions are
      * undefined and the occupant disables picking.
      */
-    'conversation.hero.catalog': { kind: 'single'; scope: 'session-maybe' }
+    'conversation.hero.catalog': {
+      kind: 'single'
+      scope: 'session-maybe'
+      owner: HomeCatalogOwnerProps
+    }
+    /**
+     * fork: The selected category's skill chips, rendered at the top of the
+     * blank-session composer card. It shares the hero catalog's owner values
+     * so the category tabs and these chips stay on one selection state.
+     */
+    'conversation.composer.hero.skills': {
+      kind: 'single'
+      scope: 'session-maybe'
+      owner: HomeCatalogOwnerProps
+    }
     /**
      * fork: Example gallery staged for a New Session (enterprise console's
      * 「首页样例配置」), rendered BELOW the composer card so the case cards never
@@ -240,6 +254,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         'conversation.hero.workspace': { kind: 'single'; scope: 'root' }
         'conversation.hero.agentPreset': { kind: 'single'; scope: 'session-maybe' }
         'conversation.hero.catalog': { kind: 'single'; scope: 'session-maybe' }
+        'conversation.composer.hero.skills': { kind: 'single'; scope: 'session-maybe' }
         'conversation.hero.gallery': { kind: 'single'; scope: 'session-maybe' }
       }
       inject: ConversationInjected
@@ -279,6 +294,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export interface HeroAgentPresetOwnerProps {
   /** Marker field: the occupant owns its roster and staged selection. */
   children?: never
+}
+
+/** Shared owner values for the hero category tabs and their skill chips. */
+export interface HomeCatalogOwnerProps {
+  /** Selected category id; absent until either surface falls back to the first. */
+  activeId?: string | undefined
+  /** Publish the category that the two catalog surfaces should render. */
+  onActive: (id: string) => void
 }
 
 /** Header actions derive their state from standard Session props. */

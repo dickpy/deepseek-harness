@@ -132,6 +132,9 @@ describe('apply', () => {
           'row.instructions': '说明',
           'row.inspect': '查看',
           'menu.userOnly': '仅用户',
+          'composer.title': '技能',
+          'composer.search': '搜索技能',
+          'composer.empty': '暂无可用技能',
         },
         en: {
           'row.title': 'Skill',
@@ -141,6 +144,9 @@ describe('apply', () => {
           'row.instructions': 'Instructions',
           'row.inspect': 'Inspect',
           'menu.userOnly': 'user-only',
+          'composer.title': 'Skills',
+          'composer.search': 'Search skills',
+          'composer.empty': 'No skills available',
         },
       },
     }])

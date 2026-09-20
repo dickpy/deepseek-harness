@@ -35,9 +35,9 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SkillEntry } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { InputTriggerServiceContract, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type { InputTriggerHit, InputTriggerServiceContract, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import { IconSkillOutline16, rankByName } from '@deepseek-ai/dsh-client-ui-primitives'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
-import { rankByName } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the SlotRegistry service merge (ctx.slots).
@@ -217,4 +217,54 @@ export function apply(ctx: ClientContext): void {
       clearAll()
     }
   }, 'ui-skill: source')
+
+  ctx.inject(['composerMenu', 'sessions'], (scope) => {
+    const composerMenu = scope.get('composerMenu') as {
+      registerPanel(panel: {
+        id: string
+        label(): string
+        icon: typeof IconSkillOutline16
+        order?: number
+        load(context: { session: { sessionId: SessionId } }, signal: AbortSignal): Promise<{
+          searchPlaceholder: string
+          emptyText?: string
+          rows: readonly {
+            id: string
+            label: string
+            description?: string
+            icon?: typeof IconSkillOutline16
+            onSelect(context: { session: { sessionId: SessionId }; hit: InputTriggerHit }): void | Promise<void>
+          }[]
+        }>
+      }): () => void
+    }
+    const scopedSessions = scope.get('sessions') as typeof sessions
+    scope.effect(() => composerMenu.registerPanel({
+      id: 'skills',
+      label: () => t('composer.title'),
+      icon: IconSkillOutline16,
+      order: 20,
+      async load({ session }, signal) {
+        const catalog = await fetchCatalog(session.sessionId).promise
+        signal.throwIfAborted()
+        return {
+          searchPlaceholder: t('composer.search'),
+          emptyText: t('composer.empty'),
+          rows: rankByName(catalog, '').map(skill => ({
+            id: skill.name,
+            label: skill.name,
+            description: skill.modelInvocable ? skill.description : `${t('menu.userOnly')} ? ${skill.description}`,
+            icon: IconSkillOutline16,
+            onSelect: ({ session: pickedSession, hit }) => {
+              const actx = scopedSessions.scope(pickedSession.sessionId)
+              if (actx === undefined) throw new Error('skill composer: session scope unavailable')
+              const controller = inputTriggers.sessionOf(actx)
+              const applied = controller.invokeCandidate('skill', { name: skill.name }, hit, 'pick')
+              if (!applied) throw new Error(`skill composer: /${skill.name} was not applied`)
+            },
+          })),
+        }
+      },
+    }), 'ui-skill: composer panel')
+  })
 }

@@ -106,6 +106,24 @@ interface PublishedSection {
   }[]
   /** 用户在桌面端「技能广场」关掉的技能名（客户端写、host 读） */
   disabledSkills: string[]
+  /** User-uploaded skill bundles written to local disk by the host. */
+  userSkills?: {
+    name: string
+    version: string
+    files: { path: string; content: string; encoding: string }[]
+    installed: boolean
+  }[]
+  /** User-defined MCP connectors mounted dynamically by the host. */
+  connectors?: {
+    name: string
+    transport: string
+    command: string
+    args: string[]
+    env: Record<string, string>
+    url: string
+    headers: Record<string, string>
+    enabled: boolean
+  }[]
   /** 首页样例（管理台「首页样例配置」下发；空数组 = 客户端不显示案例区） */
   examples: {
     id: string
@@ -139,6 +157,7 @@ function createFakeContext() {
   const namespaces: Record<string, RegisteredNamespace> = {}
   /** 每个命名空间的观察者：注册者用 watch 订阅（技能开关的即时生效走这条路径）。 */
   const watchers: Record<string, ((next: unknown, prev: unknown) => void | Promise<void>)[]> = {}
+  const pluginCalls: { plugin: unknown; config: unknown; dispose: ReturnType<typeof vi.fn> }[] = []
 
   const settings = {
     async update(ns: string, patch: object) {
@@ -194,11 +213,16 @@ function createFakeContext() {
     inject(_names: string[], callback: (scoped: unknown) => void) {
       callback(ctx)
     },
+    async plugin(plugin: unknown, config?: unknown) {
+      const dispose = vi.fn(async () => undefined)
+      pluginCalls.push({ plugin, config, dispose })
+      return { dispose }
+    },
     on() {},
     effect() {},
   }
 
-  return { ctx, namespaces }
+  return { ctx, namespaces, pluginCalls }
 }
 
 async function waitFor<T>(probe: () => T | undefined | Promise<T | undefined>, attempts = 200): Promise<T> {
@@ -252,7 +276,13 @@ async function startPlugin(overrides: Record<string, unknown> = {}) {
     const section = fake.namespaces['dsh-enterprise']?.section()
     return section?.user?.email === '' ? undefined : section
   })
-  return { home, fetchMock, namespace, registered: fake.namespaces['dsh-enterprise'] as RegisteredNamespace }
+  return {
+    home,
+    fetchMock,
+    namespace,
+    registered: fake.namespaces['dsh-enterprise'] as RegisteredNamespace,
+    pluginCalls: fake.pluginCalls,
+  }
 }
 
 describe('enterprise plugin client bridges', () => {
@@ -488,5 +518,86 @@ describe('enterprise skill activation switch', () => {
     // 已下发的技能不在关闭清单里，保持可被模型调用
     expect(await readFile(join(home, 'skills', 'doc-polish', 'SKILL.md'), 'utf8'))
       .not.toContain('disable-model-invocation')
+  })
+})
+
+
+describe('enterprise local user skills and connectors', () => {
+  const homes: string[] = []
+
+  beforeEach(() => {
+    homes.length = 0
+  })
+
+  afterEach(async () => {
+    vi.unstubAllGlobals()
+    await Promise.all(homes.map(path => rm(path, { recursive: true, force: true })))
+  })
+
+  it('materializes uploaded skills, publishes installed state, and removes them with their manifest', async () => {
+    const { home, registered } = await startPlugin()
+    homes.push(home)
+    const upload = {
+      name: 'my-local-skill',
+      displayName: 'My local skill',
+      description: 'A local test skill',
+      version: '1.0.0',
+      files: [
+        { path: 'SKILL.md', content: '---\nname: my-local-skill\ndescription: local test\n---\n\n# Local\n', encoding: 'utf8' },
+        { path: 'references/guide.md', content: 'guide\n', encoding: 'utf8' },
+      ],
+      installed: false,
+    }
+
+    await registered.update({ userSkills: [upload] })
+    const published = await waitFor(() => {
+      const section = registered.section()
+      return section?.userSkills?.[0]?.installed === true ? section : undefined
+    })
+    expect(published.userSkills?.[0]?.name).toBe('my-local-skill')
+    const skillFile = await waitFor(async () => {
+      try {
+        const content = await readFile(join(home, 'skills', 'my-local-skill', 'SKILL.md'), 'utf8')
+        return content.includes('# Local') ? content : undefined
+      } catch {
+        return undefined
+      }
+    })
+    expect(skillFile).toContain('# Local')
+    expect(await readFile(join(home, 'skills', 'my-local-skill', 'references', 'guide.md'), 'utf8')).toBe('guide\n')
+    expect(existsSync(join(home, 'enterprise-user-skills.json'))).toBe(true)
+
+    await registered.update({ userSkills: [] })
+    await waitFor(() => (existsSync(join(home, 'skills', 'my-local-skill')) ? undefined : true))
+  })
+
+  it('mounts enabled MCP connectors and disposes them when disabled', async () => {
+    const { home, registered, pluginCalls } = await startPlugin()
+    homes.push(home)
+    const connector = {
+      name: 'local_mcp',
+      transport: 'stdio',
+      description: 'local test connector',
+      command: 'node',
+      args: ['server.mjs'],
+      env: { TOKEN: 'x' },
+      url: '',
+      headers: {},
+      enabled: true,
+    }
+
+    await registered.update({ connectors: [connector] })
+    const first = await waitFor(() => pluginCalls[0])
+    expect(first.plugin).toHaveProperty('name', 'mcp-client')
+    expect(first.config).toMatchObject({
+      transport: 'stdio',
+      serverName: 'local_mcp',
+      command: 'node',
+      args: ['server.mjs'],
+      env: { TOKEN: 'x' },
+    })
+
+    await registered.update({ connectors: [{ ...connector, enabled: false }] })
+    await waitFor(() => (first.dispose.mock.calls.length > 0 ? true : undefined))
   })
 })

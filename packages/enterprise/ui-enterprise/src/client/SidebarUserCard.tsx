@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+import { BrandLogo } from '@deepseek-ai/dsh-client-ui-primitives'
 import { NS } from './locales.ts'
 import type { EnterpriseBadgeState } from './enterprise-store.ts'
 import css from './SidebarUserCard.module.css'
@@ -57,7 +58,6 @@ export function SidebarUserCard(props: SidebarUserCardProps): ReactNode {
   }, [open])
 
   if (badge.status !== 'ready' || badge.name === '') return null
-  const initial = badge.name.slice(0, 1).toUpperCase()
 
   const leave = (mode: 'logout' | 'switch'): void => {
     setOpen(false)
@@ -76,7 +76,7 @@ export function SidebarUserCard(props: SidebarUserCardProps): ReactNode {
         data-active={open}
         onClick={toggle}
       >
-        <span className={css.avatar}>{initial}</span>
+        <span className={css.avatar}><BrandLogo size={26} /></span>
         {wide && (
           <span className={css.meta}>
             <span className={css.name}>{badge.name}</span>

@@ -111,7 +111,7 @@ async function main(): Promise<void> {
     dependencyDir: join(REPOSITORY_ROOT, 'node_modules', '.pnpm', 'node_modules'),
     release,
   })
-  await preparePrimaryRuntime()
+  if (process.env.DSH_DESKTOP_SKIP_PRIMARY_RUNTIME !== '1') await preparePrimaryRuntime()
   await launchElectron()
 }
 

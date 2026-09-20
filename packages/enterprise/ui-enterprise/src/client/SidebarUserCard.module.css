@@ -44,10 +44,7 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #3370ff, #744bff);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
+  overflow: hidden;
 }
 
 .meta {

@@ -205,6 +205,32 @@ export class InputTriggerController {
   }
 
   /**
+   * Invoke a registered source directly with an already-known candidate.
+   * The composer menu owns the synthetic hit, so this shares the same
+   * source callback and input mutation path as a normal menu pick.
+   */
+  invokeCandidate(
+    source: string,
+    candidate: { readonly name: string; readonly value?: string },
+    hit: TriggerHit,
+    action: PickAction = 'pick',
+  ): boolean {
+    if (this.disposed) return false
+    const src = this.deps.roster.sources(hit.trigger).find(item => item.name === source)
+    if (src === undefined) return false
+    this.stopFetch()
+    const outcome = src.onPick({
+      candidate,
+      session: this.project(),
+      position: hit.position,
+      via: 'menu',
+      action,
+      span: hit.span,
+    })
+    return this.execute(outcome, hit.span)
+  }
+
+  /**
    * Pointer pick from MenuView: route the clicked candidate through onPick
    * and execute claim/insert outcomes via the scoped input events.
    * @param source - source (group) name.

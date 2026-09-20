@@ -21,7 +21,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the sidebar's slot declarations (sidebar.footer.action, sidebar.skills).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { setEnterpriseHidden } from '@deepseek-ai/dsh-client-ui-slots'
-import { HomeCatalog } from './HomeCatalog.tsx'
+import { IconLinkOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { HomeCatalog, HomeSkillChips } from './HomeCatalog.tsx'
 import { HomeGallery, type HomeGalleryInjected } from './HomeGallery.tsx'
 import { SidebarUserCard } from './SidebarUserCard.tsx'
 import { SkillsPlaza, type SkillsPlazaInjected } from './SkillsPlaza.tsx'
@@ -138,6 +139,60 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     inject: homeInjected,
   }, HomeCatalog))
+  // ???? chips ???????????? tab ?? ConversationContent ?
+  // activeId/onActive?????????????
+  ctx.inject(['composerMenu', 'locale'], (scope) => {
+    const t = scope.locale.bind(NS)
+    const composerMenu = scope.get('composerMenu') as {
+      registerPanel(panel: {
+        id: string
+        label(): string
+        icon: typeof IconLinkOutline16
+        order?: number
+        load(session: { sessionId: string }, signal: AbortSignal): Promise<{
+          searchPlaceholder: string
+          emptyText?: string
+          rows: readonly {
+            id: string
+            label: string
+            description?: string
+            icon?: typeof IconLinkOutline16
+            active?: boolean
+            closeOnSelect?: boolean
+            onSelect(context: { session: { sessionId: string } }): void | Promise<void>
+          }[]
+        }>
+      }): () => void
+    }
+    scope.effect(() => composerMenu.registerPanel({
+      id: 'connectors',
+      label: () => t('skills.tab.connectors'),
+      icon: IconLinkOutline16,
+      order: 30,
+      async load(_session, signal) {
+        signal.throwIfAborted()
+        return {
+          searchPlaceholder: t('skills.connector.search.placeholder'),
+          emptyText: t('skills.connector.empty.title'),
+          rows: store.store.getSnapshot().connectors.map(connector => ({
+            id: connector.name,
+            label: connector.name,
+            description: connector.description === '' ? t('skills.connector.description.none') : connector.description,
+            icon: IconLinkOutline16,
+            active: connector.enabled,
+            closeOnSelect: false,
+            onSelect: () => store.setConnectorEnabled(connector.name, !connector.enabled),
+          })),
+        }
+      },
+    }), 'ui-enterprise: composer connectors panel')
+  })
+
+  ctx.slots.inject('conversation.composer.hero.skills', () => ctx.slots.register({
+    name: 'conversation.composer.hero.skills',
+    locale: NS,
+    inject: homeInjected,
+  }, HomeSkillChips))
   // 首页样例区：管理台「首页样例配置」下发的案例卡片（输入框下方，可换一批）
   const galleryInjected = (): HomeGalleryInjected => ({ hooks: { home: store.store } })
   ctx.slots.inject('conversation.hero.gallery', () => ctx.slots.register({
@@ -154,6 +209,12 @@ export function apply(ctx: ClientContext): void {
     useSkill: (skill) => { void composeDraft(ctx, `/${skill}`) },
     // 开关只写设置节的一个字段；host 插件监听同一节，把结果落到技能文件上
     // （关闭 = 不进模型可见的技能目录，用户手打 /技能名 仍可显式调用）。
+    createSkill: (prompt) => { void composeDraft(ctx, `/skill-creator ${prompt}`) },
+    uploadSkill: upload => store.putUserSkill(upload),
+    removeUserSkill: name => store.removeUserSkill(name),
+    saveConnectors: connectors => store.putConnectors(connectors),
+    removeConnector: name => store.removeConnector(name),
+    setConnectorEnabled: (name, enabled) => store.setConnectorEnabled(name, enabled),
     setSkillEnabled: (skill, enabled) => store.setSkillEnabled(skill, enabled),
   })
   ctx.slots.inject('sidebar.skills', () => ctx.slots.register({

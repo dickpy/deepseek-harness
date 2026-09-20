@@ -197,6 +197,17 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
   }
 
   /**
+   * Ordered menu rows for the visual composer launcher. Unlike the slash
+   * source, this asks for the complete leading-position list once.
+   */
+  async composerRows(
+    session: ClientSessionContext,
+    signal: AbortSignal,
+  ): Promise<readonly InputTriggerCandidate[]> {
+    return this.candidates(session, { query: '', position: 'leading', signal, drilled: false })
+  }
+
+  /**
    * Menu candidates: host catalog + contribution availability, built-in rows
    * localized, then position filtering; sections for an empty query, the
    * shared name-and-label ranking for a typed one.

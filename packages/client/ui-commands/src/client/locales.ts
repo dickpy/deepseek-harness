@@ -35,6 +35,13 @@ export const zh = {
   'overlay.aria': '/{command} 选项',
   'listbox.aria': '/{command} 匹配项',
   'notice.attachmentsUnsupported': '/{command} 不接受附件，请先移除附件',
+  'composer.aria': '更多操作',
+  'composer.nav.aria': '操作分类',
+  'composer.search.placeholder': '搜索…',
+  'composer.search.aria': '搜索当前分类',
+  'composer.loading': '正在加载…',
+  'composer.empty': '暂无可选项',
+  'composer.retry': '重试',
 } satisfies Record<string, string>
 
 /** The command namespace key union. */
@@ -70,4 +77,11 @@ export const en = {
   'overlay.aria': '/{command} options',
   'listbox.aria': '/{command} matches',
   'notice.attachmentsUnsupported': '/{command} does not accept attachments; remove them first',
+  'composer.aria': 'More actions',
+  'composer.nav.aria': 'Action categories',
+  'composer.search.placeholder': 'Search…',
+  'composer.search.aria': 'Search this category',
+  'composer.loading': 'Loading…',
+  'composer.empty': 'No options',
+  'composer.retry': 'Retry',
 } satisfies Record<CommandKey, string>

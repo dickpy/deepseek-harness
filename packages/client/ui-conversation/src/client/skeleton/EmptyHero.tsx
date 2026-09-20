@@ -1,13 +1,25 @@
 // The composer remains in ConversationRoot so switching out of the blank-draft
 // phase does not remount its textarea.
 
+import { useMemo } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import {
-  IconChevronDownOutline14, IconFolderClose16, IconFolderOpen16,
+  BrandLogo, IconChevronDownOutline14, IconFolderClose16, IconFolderOpen16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
+import { MorphingText } from './MorphingText.tsx'
 import type { ConversationContentProps } from '../contract/slots.ts'
 import css from './HeroShell.module.css'
+
+const MORPH_TEXT_KEYS = [
+  'hero.headline',
+  'hero.morph.1',
+  'hero.morph.2',
+  'hero.morph.3',
+  'hero.morph.4',
+  'hero.morph.5',
+  'hero.morph.6',
+] as const
 
 /** The owner's locale seat type, passed to hero chrome as a plain prop. */
 type HeroTranslate = ConversationContentProps['t']
@@ -60,12 +72,12 @@ export function WorkspaceChip({ buttonRef, label, menuOpen = false, onClick, t }
   )
 }
 
-/** Hero chrome props. The workspace row rides the InputBar accessory hole, not here. */
+/** Hero chrome props. The composer owns the workspace row and card header. */
 export interface HeroShellProps {
   /** The owner's locale seat, passed down as a plain prop. */
   t: HeroTranslate
-  /** Authorized renderer for the hero catalog slot. */
-  renderSlot: ConversationContentProps['renderSlot']
+  /** Rendered category tabs staged between the greeting and composer card. */
+  catalog?: ReactNode
   /** Overlay content after the stack (modals). */
   children?: ReactNode
 }
@@ -78,21 +90,20 @@ export interface HeroShellProps {
  * @param props - see {@link HeroShellProps}.
  * @returns the centered hero element tree.
  */
-export function HeroShell({ t, renderSlot, children }: HeroShellProps) {
+export function HeroShell({ t, catalog, children }: HeroShellProps) {
+  const morphTexts = useMemo(() => MORPH_TEXT_KEYS.map(key => t(key)), [t])
   return (
     <div className={css.root}>
       <div className={css.stack}>
-        <h1 className={css.headline}>
-          {/* fork: 问候语与上游的「预览版」徽标同排；徽标文案仍走词典。 */}
-          <span>{t('hero.headline')}</span>
+        <h1 className={css.headline} data-testid="hero-headline">
+          {/* fork: enterprise mark on the left; line-shadow is CSS-only. */}
+          <BrandLogo size={40} className={css.brandLogo} />
+          <span className={css.headlineText}>
+            <MorphingText texts={morphTexts} />
+          </span>
           <span className={css.previewBadge}>{t('hero.preview')}</span>
         </h1>
-        {/* WorkBuddy 式模块目录（ui-enterprise 注入；session-maybe 槽位，
-            无会话时占用方拿不到 inputActions，chips 自行禁用）。 */}
-        {renderSlot('conversation.hero.catalog', {})}
-        <div className={css.body}>
-          {/* The composer remains mounted outside this component. */}
-        </div>
+        {catalog}
       </div>
       {children}
     </div>

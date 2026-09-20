@@ -126,6 +126,23 @@ export interface InputTriggerController {
   openReference(source: string | undefined, reference: Pick<ReferenceInsert, 'ref' | 'appearance'>): boolean
   /** @param source - source name. @param hit - synthetic trigger hit. */
   toggleSource(source: string, hit: InputTriggerHit): void
+  /** Close the currently open trigger menu and return focus to the composer. */
+  dismiss(): void
+  /**
+   * Invoke one source candidate programmatically. Used by the composer menu
+   * panels after the launcher menu has already supplied the synthetic span.
+   * @param source - source (group) name.
+   * @param candidate - candidate identity and pick payload.
+   * @param hit - synthetic trigger hit supplying position and span CAS.
+   * @param action - settling pick or the candidate's drill action.
+   * @returns whether the source outcome was applied to the input machine.
+   */
+  invokeCandidate(
+    source: string,
+    candidate: { readonly name: string; readonly value?: string },
+    hit: InputTriggerHit,
+    action?: 'pick' | 'drill',
+  ): boolean
 }
 
 declare module '@deepseek-ai/cordis' {

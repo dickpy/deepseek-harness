@@ -22,7 +22,7 @@ async function main(): Promise<void> {
     resolutionMode: process.argv[5] === 'runtime' ? 'runtime' : 'link',
     resolvedProfile: { profile, installAnchor },
     patchFiles: [],
-    args: ['--no-open', '--port', '19387'],
+    args: ['--no-open', '--port', process.env.DSH_DESKTOP_PORT ?? '19387'],
     ...(process.argv[6] === undefined ? {} : {
       packageManager: {
         command: process.execPath,

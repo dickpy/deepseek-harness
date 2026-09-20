@@ -1,0 +1,17 @@
+/* Inherit the hero primary color; only filter and opacity animate. */
+.root {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  white-space: nowrap;
+  line-height: inherit;
+  vertical-align: baseline;
+  color: var(--dsw-alias-label-primary);
+}
+
+.text {
+  grid-area: 1 / 1;
+  display: inline-block;
+  color: inherit;
+  will-change: filter, opacity;
+}

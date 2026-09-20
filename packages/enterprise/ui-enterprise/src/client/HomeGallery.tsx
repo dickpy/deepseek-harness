@@ -7,8 +7,8 @@ import { exampleDraft, type HomeExample } from './home-examples.ts'
 import { NS } from './locales.ts'
 import css from './HomeGallery.module.css'
 
-/** 「换一批」每批展示的样例数：一排四张，与 WorkBuddy 的案例墙一致 */
-const PAGE_SIZE = 4
+/** Each shuffle shows three larger cards in one row. */
+const PAGE_SIZE = 3
 
 /** 首页样例区的注入面：hooks.home 绑定企业设置节。 */
 export interface HomeGalleryInjected {

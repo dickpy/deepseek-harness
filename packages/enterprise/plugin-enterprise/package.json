@@ -27,6 +27,7 @@
     "@types/node": "^22.10.2"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-mcp-client": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^"
   }
 }

@@ -480,8 +480,7 @@
    block for position:fixed descendants (pickers/modals), shrinking them. */
 .composerHero {
   align-self: center;
-  /* figma 75:8208 drew 12 between all three rows; the workspace row now sits
-     8 above the card (its margin-top restores 12 under the hero chrome). */
+  /* Hero children are separate rows around the untouched composer card. */
   gap: 8px;
   /* Foot inside the centered box floats the stack a bit above true center. */
   padding-bottom: 32px;
@@ -496,11 +495,19 @@
   align-items: center;
   gap: 2px;
   min-width: 0;
-  margin-top: 4px;
-  /* figma drew px 8; left nudged +12 so the chip's folder glyph lines up
-     closer to the card's inner controls below; right keeps the trailing
-     preset seat off the card edge. */
+  max-width: 100%;
   padding: 0 16px 0 20px;
+}
+
+/* Skill chips hug the card's top edge from the outside: the row gets a small
+   breathing gap from the category tabs above and nearly meets the card. */
+.heroSkillsRow {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  margin-top: 30px;
+  margin-bottom: -2px;
+  padding: 0 16px;
 }
 
 /* Hero: the composer sits inside the session scroll body; center there so

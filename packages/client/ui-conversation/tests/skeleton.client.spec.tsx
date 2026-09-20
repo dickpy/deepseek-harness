@@ -25,7 +25,6 @@ import { ConversationMainPanel } from '../src/client/skeleton/ConversationMainPa
 import { ConversationSession, ConversationSessionHeader } from '../src/client/skeleton/ConversationSession.tsx'
 import { conversationPhase } from '../src/client/contract/snapshot.ts'
 import { HeroShell } from '../src/client/skeleton/EmptyHero.tsx'
-import type { HeroShellProps } from '../src/client/skeleton/EmptyHero.tsx'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import type {
@@ -370,15 +369,17 @@ function mount(
 }
 
 describe('Hero chrome', () => {
-  it('renders the English greeting through the hero locale seat and stages the catalog slot', () => {
-    const renderSlot = vi.fn<HeroShellProps['renderSlot']>(() => null)
-    const view = render(<HeroShell t={makeTranslate(en, commonEn)} renderSlot={renderSlot} />)
-    expect(view.getByText("维小智, I'm here to help")).toBeTruthy()
-    // Hero chrome itself stages only the module catalog; the example gallery is
-    // rendered by ConversationRoot below the composer card, not from here.
-    expect(renderSlot).toHaveBeenCalledOnce()
-    expect(renderSlot.mock.calls[0]?.[0]).toBe('conversation.hero.catalog')
-    expect(renderSlot.mock.calls[0]?.[1]).toEqual({})
+  it('renders the locale greeting and stages the catalog node', () => {
+    const view = render(
+      <HeroShell
+        t={makeTranslate(en, commonEn)}
+        catalog={<i data-testid="hero-catalog" />}
+      />,
+    )
+    expect(view.getByTestId('hero-headline')).toBeTruthy()
+    // The composer owns both catalog surfaces now; HeroShell receives the
+    // rendered tabs as a node and does not dispatch slots itself.
+    expect(view.getByTestId('hero-catalog')).toBeTruthy()
   })
 })
 

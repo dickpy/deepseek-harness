@@ -1,0 +1,252 @@
+.card {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 8px;
+  z-index: 100;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  width: min(640px, calc(100% - 8px));
+  max-height: 520px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--dsw-specific-menu);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+  overflow: hidden;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 2px;
+  padding: 8px;
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, currentColor 2%, transparent);
+  overflow-y: auto;
+}
+
+.navItem,
+.row,
+.footerAction {
+  display: flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.navItem {
+  gap: 9px;
+  min-height: 38px;
+  padding: 0 9px;
+  border-radius: 9px;
+  font-size: 13.5px;
+}
+
+.navItem:hover,
+.navActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.navActive {
+  font-weight: 600;
+}
+
+.navIcon,
+.navChevron {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.navLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.searchWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 10px 4px;
+  padding: 0 8px;
+  min-height: 36px;
+  border: 0.5px solid var(--dsw-alias-border-inverted);
+  border-radius: 9px;
+}
+
+.searchIcon {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.search {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.search::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 6px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.row {
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 7px 9px;
+  border-radius: 10px;
+}
+
+.row:hover,
+.rowActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.rowIcon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.rowText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.rowTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  line-height: 20px;
+}
+
+.rowDescription {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.check {
+  flex: none;
+  color: var(--dsw-alias-label-primary);
+}
+
+.section {
+  padding: 9px 9px 3px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.status {
+  padding: 12px 10px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12.5px;
+}
+
+.error > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.retry,
+.footerAction {
+  border-radius: 8px;
+}
+
+.retry {
+  padding: 2px 8px;
+  border: 0.5px solid var(--dsw-alias-border-inverted);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.footerAction {
+  gap: 7px;
+  padding: 7px 9px;
+  font-size: 12.5px;
+}
+
+.footerAction:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+@media (max-width: 760px) {
+  .card {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+}

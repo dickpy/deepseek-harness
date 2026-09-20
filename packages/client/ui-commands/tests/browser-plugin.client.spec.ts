@@ -15,7 +15,7 @@ import type { InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigge
 import type { CommandUiContract } from '../src/client/contract.ts'
 import type { PopupSelectInjected } from '../src/client/PopupSelectView.tsx'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import { apply, CommandUiRuntime, inject } from '../src/client/index.ts'
+import { apply, CommandUiRuntime, ComposerMenuRuntime, inject } from '../src/client/index.ts'
 
 const sid = (k: string): SessionId => k as SessionId
 
@@ -74,12 +74,13 @@ describe('apply', () => {
     const { ctx, fiber, sources, slots } = await bench()
     const command = ctx.get('commandUi')
     expect(command).toBeInstanceOf(CommandUiRuntime)
+    expect(ctx.get('composerMenu')).toBeInstanceOf(ComposerMenuRuntime)
     // Frozen-contract conformance (compile-time check rides the assignment).
     const contract: CommandUiContract = command as CommandUiRuntime
     expect(typeof contract.register).toBe('function')
     expect(typeof contract.popupFor).toBe('function')
     expect([...sources.keys()]).toEqual(['/ command'])
-    expect(slots.entries('conversation.input.overlay').map(entry => entry.options.id)).toEqual(['command-popup'])
+    expect(slots.entries('conversation.input.overlay').map(entry => entry.options.id)).toEqual(['composer-menu', 'command-popup'])
     await fiber.dispose()
     expect(sources.size).toBe(0)
     expect(slots.entries('conversation.input.overlay')).toHaveLength(0)
@@ -98,7 +99,7 @@ describe('apply', () => {
     const { ctx, slots, mint } = await bench()
     const command = ctx.get('commandUi') as CommandUiRuntime
     const scope = mint('s1')
-    const entry = slots.entries('conversation.input.overlay')[0]!
+    const entry = slots.entries('conversation.input.overlay').find(entry => entry.options.id === 'command-popup')!
     const injectEntry = entry.inject as unknown as (sessionId: SessionId) => PopupSelectInjected
     expect(injectEntry(sid('s1')).popup).toBe(command.popupFor(scope.ctx))
     expect(() => injectEntry(sid('ghost'))).toThrow(/resolved no scope/)

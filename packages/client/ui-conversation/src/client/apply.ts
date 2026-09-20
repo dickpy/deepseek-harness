@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { ISessions, SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
 import { IconPaperclipOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { createSnapshotStore, type BoundActions } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore, type BoundActions, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only service and declaration merges used by this assembly.
@@ -17,7 +17,7 @@ import type {
   ComposerBarInjected, ConversationInjected, ConversationSessionHeaderInjected,
   ConversationSessionInjected, DraftFileUploads,
 } from './contract/slots.ts'
-import type { InputNotice } from './contract/input.ts'
+import type { InputNotice, InputTriggerHit } from './contract/input.ts'
 import { createConversationStore, readConversationViewPreference } from './stores.ts'
 import { ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
 import type { IConversation } from './service.ts'
@@ -102,6 +102,20 @@ interface FileCommandRegistry {
     icon: typeof IconPaperclipOutline16
     available(session: { sessionId: SessionId }): boolean
     ui: { kind: 'action'; run(session: { sessionId: SessionId }): void }
+  }): () => void
+}
+
+/** Minimal visual composer-menu face consumed by the resident composer. */
+interface ComposerMenuRegistry {
+  launcherFor(sessionId: SessionId): ObservableSnapshot<string | null>
+  toggleFor(sessionId: SessionId, hit: InputTriggerHit): void
+  registerAction(action: {
+    id: string
+    label(): string
+    icon: typeof IconPaperclipOutline16
+    order?: number
+    available?(session: { sessionId: SessionId }): boolean
+    run(context: { session: { sessionId: SessionId } }): void
   }): () => void
 }
 
@@ -204,8 +218,17 @@ export function apply(ctx: Context, config: Config = Config({})): void {
   const inputHub = new InputHub(ctx, t)
   const composerBlocks = new ComposerBlockRegistry()
 
-  ctx.inject(['commandUi'], (scope) => {
+  ctx.inject(['commandUi', 'composerMenu'], (scope) => {
     const commands = scope.get('commandUi') as FileCommandRegistry
+    const composerMenu = scope.get('composerMenu') as ComposerMenuRegistry
+    scope.effect(() => composerMenu.registerAction({
+      id: 'file',
+      label: () => t('input.file'),
+      icon: IconPaperclipOutline16,
+      order: 0,
+      available: session => inputHub.canPickFiles(session.sessionId),
+      run: (context) => { inputHub.pickFiles(context.session.sessionId) },
+    }), 'ui-conversation: Composer file action')
     scope.effect(() => commands.register({
       name: 'file',
       label: () => t('input.file'),
@@ -256,6 +279,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       'conversation.hero.agentPreset': { kind: 'single', scope: 'session-maybe' },
       // fork: 企业版首页模块目录与样例区（ui-enterprise 注入）
       'conversation.hero.catalog': { kind: 'single', scope: 'session-maybe' },
+      'conversation.composer.hero.skills': { kind: 'single', scope: 'session-maybe' },
       'conversation.hero.gallery': { kind: 'single', scope: 'session-maybe' },
     },
     slots: {
@@ -362,6 +386,17 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       const conversation = concreteConversation(ctx)
       const shell = inputHub.shell(sessionId)
       const inputTriggers = inputHub.inputTriggers(sessionId)
+      const composerMenu = ctx.get('composerMenu') as ComposerMenuRegistry | undefined
+      const composerHit = (selection: { start: number; end: number }): InputTriggerHit => {
+        const snapshot = shell.snapshot
+        return {
+          trigger: '/',
+          query: '',
+          quoted: false,
+          position: snapshot.draft.slice(0, selection.start).trim() === '' ? 'leading' : 'inline',
+          span: { ...selection, draftRev: snapshot.draftRev },
+        }
+      }
       return {
         keyboard: shell,
         addFiles: (files) => {
@@ -384,18 +419,17 @@ export function apply(ctx: Context, config: Config = Config({})): void {
         retryFileUpload: (id) => {
           if (sessions.binding(sessionId) !== undefined) conversation.retryFileUpload(sessionId, id)
         },
-        toggleCommandMenu: inputTriggers === undefined
-          ? undefined
+        toggleCommandMenu: composerMenu === undefined
+          ? inputTriggers === undefined
+            ? undefined
+            : (selection) => {
+              shell.dismissPopup()
+              inputTriggers.toggleSource('command', composerHit(selection))
+            }
           : (selection) => {
             shell.dismissPopup()
-            const snapshot = shell.snapshot
-            inputTriggers.toggleSource('command', {
-              trigger: '/',
-              query: '',
-              quoted: false,
-              position: snapshot.draft.slice(0, selection.start).trim() === '' ? 'leading' : 'inline',
-              span: { ...selection, draftRev: snapshot.draftRev },
-            })
+            inputTriggers?.dismiss()
+            composerMenu.toggleFor(sessionId, composerHit(selection))
           },
         stop: () => {
           scopedConversation(sessions, sessionId).cancel().catch(() => {
@@ -407,7 +441,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
           fileUploads: conversation.fileUploads,
           notices: shell.notices,
           lexicon: shell.lexicon,
-          menuLauncher: inputTriggers?.launcher ?? ABSENT_MENU_LAUNCHER,
+          menuLauncher: composerMenu?.launcherFor(sessionId) ?? inputTriggers?.launcher ?? ABSENT_MENU_LAUNCHER,
         },
       }
     },
