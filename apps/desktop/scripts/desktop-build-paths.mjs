@@ -4,7 +4,21 @@ import { join, resolve } from 'node:path'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const BUILD_ROOT = join(APP_ROOT, '.desktop-build')
+const DIST_ROOT = resolve(APP_ROOT, '..', '..', '..')
 const SUPPORTED_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64'])
+
+/**
+ * Return the sibling distribution directory used for local release artifacts.
+ * @param {string} version - Desktop product version.
+ * @param {'mac-arm64' | 'mac-x64' | 'win-x64'} target - Supported Desktop target name.
+ * @returns {string} Absolute sibling dist-<version>/<target> directory.
+ */
+export function desktopDistributionDirectory(version, target) {
+  if (!SUPPORTED_TARGETS.has(target)) {
+    throw new Error(`desktop build paths: unsupported target ${String(target)}`)
+  }
+  return join(DIST_ROOT, `dist-${version}`, target)
+}
 
 /**
  * Resolve the fixed build target selected by a packaging environment.

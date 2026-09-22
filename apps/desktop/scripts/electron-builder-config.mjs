@@ -18,7 +18,7 @@ import {
 } from './windows-sign.mjs'
 import { DESKTOP_ARTIFACT_PREFIX, resolveDesktopAutoUpdateConfig } from './desktop-auto-update-environment.mjs'
 import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
-import { desktopTargetBuildPaths, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
+import { desktopDistributionDirectory, desktopTargetBuildPaths, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
 import { installWindowsDirectoryInstaller } from './windows-directory-installer.mjs'
 import { preserveWindowsRuntimeSignature } from './windows-runtime-signature.mjs'
 import {
@@ -60,7 +60,9 @@ export function createElectronBuilderConfig(
   if (resolvedPlatform === 'win32' && customInstaller) installWindowsDirectoryInstaller()
   const macOSSigning = packagesMacOS ? resolveMacOSSigningEnvironment(env) : undefined
   if (packagesMacOS) resolveMacOSNotarizationEnvironment(env)
-  const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
+  const targetName = resolveDesktopBuildTarget(env, hostPlatform, hostArch)
+  const buildPaths = desktopTargetBuildPaths(targetName)
+  const desktopVersion = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')).version
   let primaryRuntimeDestination
   const windowsSigner = packagesWindows && !unsigned
     ? createWindowsTokenSigner({
@@ -100,7 +102,7 @@ export function createElectronBuilderConfig(
     // fork: 免签名产物目录可用 DSH_DESKTOP_UNSIGNED_OUT_DIR 指到仓库外（避开工作区索引器的文件锁）
     directories: {
       output: unsigned
-        ? (env.DSH_DESKTOP_UNSIGNED_OUT_DIR ?? join(buildPaths.root, 'unsigned-out'))
+        ? (env.DSH_DESKTOP_UNSIGNED_OUT_DIR ?? desktopDistributionDirectory(desktopVersion, targetName))
         : buildPaths.artifacts,
     },
     asar: true,

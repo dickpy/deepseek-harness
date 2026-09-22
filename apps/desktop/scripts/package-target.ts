@@ -9,12 +9,13 @@ import {
   desktopBuildRecordFilename,
   resolveDesktopAutoUpdateConfig,
 } from './desktop-auto-update-environment.mjs'
-import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { desktopDistributionDirectory, desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { parseEnterpriseManifest, resolveEnterpriseChannel } from '../src/enterprise-environments.ts'
 import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
 import { loadDesktopPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun } from './packaging-run.mjs'
 import { withMacOSSigningKeychain } from './macos-signing-keychain.mjs'
+import { writeLocalDistributionMetadata } from './local-distribution.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
@@ -440,6 +441,12 @@ export async function packageTarget(
     }, artifact => execute(desktopElectronBuilderArguments(target, false, artifact), electronBuilderEnv))
   } else {
     await execute(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv)
+  }
+  if (!invocation.directory && invocation.unsigned) {
+    const version = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
+    const output = electronBuilderEnv.DSH_DESKTOP_UNSIGNED_OUT_DIR
+      ?? desktopDistributionDirectory(version, target.name)
+    writeLocalDistributionMetadata({ version, platform: target.platform, arch: target.arch, output })
   }
   if (!invocation.directory && !invocation.unsigned) writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
 }
