@@ -97,6 +97,36 @@
   white-space: nowrap;
 }
 
+.uploadProgress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.uploadProgressText {
+  font-size: 12px;
+  color: color-mix(in srgb, currentColor 68%, transparent);
+}
+
+.uploadProgressTrack {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.uploadProgressBar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #16a34a;
+  transition: width 0.16s ease;
+}
+
 .error {
   margin: 0;
   padding: 9px 12px;
@@ -620,6 +650,13 @@
 .mcpDialog {
   width: min(760px, 100%);
   height: min(620px, 100%);
+}
+
+.mcpHint {
+  margin: 8px 18px 10px;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .mcpDialogHead {

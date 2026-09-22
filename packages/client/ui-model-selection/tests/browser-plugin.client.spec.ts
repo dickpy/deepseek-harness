@@ -117,6 +117,11 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
       return () => { contribution = undefined }
     },
   })
+  const settingsOpens: string[] = []
+  ctx.provide('settingsPanel', {
+    open(sectionId?: string) { settingsOpens.push(sectionId ?? '') },
+    register() { return () => {} },
+  })
   const seats = new Map<string, {
     inject: ((sessionId: SessionId) => ModelSelectInjected) | undefined
     locale: string | undefined
@@ -171,7 +176,7 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
     return handle
   }
   return {
-    ctx, fiber, mint, calls, remote,
+    ctx, fiber, mint, calls, remote, settingsOpens,
     contribution: () => contribution!,
     popup: (): PopupSelectSpec => {
       const ui = contribution!.ui
@@ -213,6 +218,9 @@ describe('ui-model-selection dual entry', () => {
     expect(b.seat().inject).toBeTypeOf('function')
     // Copy rides the standard locale seat.
     expect(b.seat().locale).toBe('model')
+    b.mint('s1')
+    b.seat().inject!(sid('s1')).openSettings?.()
+    expect(b.settingsOpens).toEqual(['models'])
   })
 
   it('localizes built-in descriptions and preserves external provider descriptions', async () => {

@@ -26,7 +26,7 @@ import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
-  IconDataOutline16, IconWarningOutline16, Toast,
+  IconDataOutline16, IconSettingsOutline16, IconWarningOutline16, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
@@ -52,7 +52,7 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * @returns the trigger and, while open, the two-level menu.
  */
 export function ModelSelect(
-  { locked, available, directory, load, select, t }:
+  { locked, available, directory, load, openSettings = () => {}, select, t }:
   ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
 ) {
   const state = useSyncExternalStore(
@@ -444,6 +444,16 @@ export function ModelSelect(
               {state.status === 'ready' && choices.length === 0 && (
                 <div className={css.empty}>{t('empty.models')}</div>
               )}
+              <button
+                ref={itemRef()}
+                type="button"
+                role="menuitem"
+                className={css.menuAction}
+                onClick={() => { close(); openSettings() }}
+              >
+                <IconSettingsOutline16 size={16} />
+                <span>{t('menu.configure')}</span>
+              </button>
             </>
           )}
 

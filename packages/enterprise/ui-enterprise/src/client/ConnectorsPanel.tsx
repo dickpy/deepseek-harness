@@ -25,6 +25,7 @@ export function ConnectorsPanel(props: ConnectorsPanelProps): ReactNode {
   const { t, connectors, saveConnectors, removeConnector, setConnectorEnabled } = props
   const [keyword, setKeyword] = useState('')
   const [jsonDraft, setJsonDraft] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const gutterRef = useRef<HTMLPreElement>(null)
@@ -47,14 +48,22 @@ export function ConnectorsPanel(props: ConnectorsPanelProps): ReactNode {
     ? ''
     : jsonDraft.split('\n').map((_, index) => String(index + 1)).join('\n')
 
-  const openConfig = (): void => {
+  const openCreate = (): void => {
     setError(null)
-    setJsonDraft(formatMcpConfig(connectors))
+    setEditingName(null)
+    setJsonDraft('{\n  "mcpServers": {}\n}')
+  }
+
+  const openEdit = (connector: EnterpriseConnector): void => {
+    setError(null)
+    setEditingName(connector.name)
+    setJsonDraft(formatMcpConfig([connector]))
   }
 
   const closeConfig = (): void => {
     if (busy) return
     setError(null)
+    setEditingName(null)
     setJsonDraft(null)
   }
 
@@ -77,6 +86,10 @@ export function ConnectorsPanel(props: ConnectorsPanelProps): ReactNode {
     let next: EnterpriseConnector[]
     try {
       next = parseMcpConfig(jsonDraft)
+      if (next.length !== 1) throw new Error(t('skills.connector.config.one'))
+      if (editingName !== null && next[0]?.name !== editingName) {
+        throw new Error(t('skills.connector.config.editName', { name: editingName }))
+      }
     } catch (reason) {
       setError(t('skills.connector.config.invalid', { message: describeError(reason) }))
       return
@@ -112,7 +125,7 @@ export function ConnectorsPanel(props: ConnectorsPanelProps): ReactNode {
             type="button"
             className={css.outlineButton}
             title={t('skills.connector.create.hint')}
-            onClick={openConfig}
+            onClick={openCreate}
           >
             {t('skills.connector.create')}
           </button>
@@ -172,7 +185,7 @@ export function ConnectorsPanel(props: ConnectorsPanelProps): ReactNode {
                   <div className={css.cardFoot}>
                     <span className={`${css.meta} ${css.mono}`}>{endpointOf(connector)}</span>
                     <span className={css.actions}>
-                      <button type="button" className={css.tryButton} onClick={openConfig}>
+                      <button type="button" className={css.tryButton} onClick={() => { openEdit(connector) }}>
                         {t('skills.connector.edit')}
                       </button>
                       <button type="button" className={css.outlineButton} onClick={() => { remove(connector) }}>
@@ -191,13 +204,13 @@ export function ConnectorsPanel(props: ConnectorsPanelProps): ReactNode {
             className={`${css.dialog} ${css.mcpDialog}`}
             role="dialog"
             aria-modal="true"
-            aria-label={t('skills.connector.config.title')}
+            aria-label={t(editingName === null ? 'skills.connector.config.newTitle' : 'skills.connector.config.editTitle')}
             onClick={(event) => { event.stopPropagation() }}
           >
             <div className={css.mcpDialogHead}>
               <div>
-                <h2 className={css.mcpTitle}>{t('skills.connector.config.title')}</h2>
-                <p className={css.mcpSubtitle}>{t('skills.connector.config.subtitle')}</p>
+                <h2 className={css.mcpTitle}>{t(editingName === null ? 'skills.connector.config.newTitle' : 'skills.connector.config.editTitle')}</h2>
+                <p className={css.mcpSubtitle}>{t(editingName === null ? 'skills.connector.config.newSubtitle' : 'skills.connector.config.editSubtitle')}</p>
               </div>
               <button type="button" className={css.outlineButton} disabled={busy} onClick={closeConfig}>
                 {t('skills.connector.config.back')}
@@ -207,12 +220,13 @@ export function ConnectorsPanel(props: ConnectorsPanelProps): ReactNode {
             <div className={css.mcpPath}>
               {t('skills.connector.config.path', { path: 'dsh-enterprise.connectors' })}
             </div>
+            <p className={css.mcpHint}>{t('skills.connector.config.mergeHint')}</p>
 
             <div className={css.jsonEditor}>
               <pre ref={gutterRef} className={css.jsonGutter} aria-hidden="true">{lineNumbers}</pre>
               <textarea
                 className={css.jsonTextarea}
-                aria-label={t('skills.connector.config.title')}
+                aria-label={t(editingName === null ? 'skills.connector.config.newTitle' : 'skills.connector.config.editTitle')}
                 spellCheck={false}
                 value={jsonDraft}
                 onChange={(event) => { setJsonDraft(event.target.value) }}

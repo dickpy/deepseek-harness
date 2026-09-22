@@ -190,6 +190,11 @@ export function apply(ctx: ClientContext): void {
           load: () => {
             if (available) directory.load().catch(() => { /* surfaced on the store */ })
           },
+          openSettings: () => {
+            (scope as unknown as {
+              get(name: string): { open(sectionId: string): void } | undefined
+            }).get('settingsPanel')?.open('models')
+          },
           select: (selection: ModelSelection) => available
             ? directory.select(selection)
             : Promise.resolve(undefined),

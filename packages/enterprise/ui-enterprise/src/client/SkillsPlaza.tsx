@@ -6,7 +6,7 @@ import type {
   EnterpriseBadgeState, EnterpriseConnector, EnterpriseSkill, UserSkillUpload,
 } from './enterprise-store.ts'
 import { ConnectorsPanel } from './ConnectorsPanel.tsx'
-import { skillUploadFromFiles } from './skill-upload.ts'
+import { skillUploadFromFiles, skillUploadFromZip, type UploadedSkillFile } from './skill-upload.ts'
 import { NS } from './locales.ts'
 import css from './SkillsPlaza.module.css'
 
@@ -74,6 +74,34 @@ export type SkillsPlazaProps =
   & InjectFace<SkillsPlazaInjected>
 
 /** 面板级 tab：技能广场 / 连接器。 */
+/** Text skill assets stay UTF-8; binaries are preserved as base64. */
+const TEXT_SKILL_EXTENSIONS = new Set([
+  'md', 'markdown', 'txt', 'json', 'yaml', 'yml', 'py', 'js', 'mjs', 'cjs', 'ts', 'tsx',
+  'sh', 'toml', 'xml', 'html', 'css', 'svg', 'csv', 'ini', 'cfg', 'conf',
+])
+
+function isTextSkillFile(file: File): boolean {
+  if (file.type.startsWith('text/')) return true
+  const extension = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() ?? '' : ''
+  return TEXT_SKILL_EXTENSIONS.has(extension)
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk))
+  }
+  return btoa(binary)
+}
+
+async function readSkillFile(file: File): Promise<UploadedSkillFile> {
+  const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+  if (isTextSkillFile(file)) return { path, content: await file.text(), encoding: 'utf8' }
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  return { path, content: bytesToBase64(bytes), encoding: 'base64' }
+}
+
 const TABS = [
   { id: 'skills', label: 'skills.tab.skills' },
   { id: 'connectors', label: 'skills.tab.connectors' },
@@ -119,7 +147,9 @@ export function SkillsPlaza(props: SkillsPlazaProps): ReactNode {
   const [detailName, setDetailName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; name: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const folderRef = useRef<HTMLInputElement>(null)
 
   if (snapshot.status === 'loading') {
     return <div className={css.root}><p className={css.placeholder}>{t('skills.loading')}</p></div>
@@ -138,7 +168,12 @@ export function SkillsPlaza(props: SkillsPlazaProps): ReactNode {
   const kindOf = (skill: EnterpriseSkill): string => (skill.kind !== 'bundle'
     ? t('skills.kind.single')
     : t('skills.kind.bundle', { count: String(skill.fileCount) }))
-  const describeError = (reason: unknown): string => (reason instanceof Error ? reason.message : String(reason))
+  const describeError = (reason: unknown): string => {
+    const message = reason instanceof Error ? reason.message : String(reason)
+    if (message.includes('no Markdown entry found')) return t('skills.upload.missingSkill')
+    if (message.includes('invalid zip data')) return t('skills.upload.invalidZip')
+    return message
+  }
 
   const toggle = (skill: EnterpriseSkill): void => {
     setError(null)
@@ -151,21 +186,53 @@ export function SkillsPlaza(props: SkillsPlazaProps): ReactNode {
   const onPickSkillFiles = (event: ChangeEvent<HTMLInputElement>): void => {
     const list = event.target.files
     event.target.value = ''
-    if (list === null || list.length === 0) return
+    if (list === null || list.length === 0) {
+      setError(t('skills.upload.empty'))
+      return
+    }
     void (async () => {
       setError(null)
       setBusy(true)
       try {
         const picked = Array.from(list)
-        const files = await Promise.all(picked.map(async file => ({
-          path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
-          content: await file.text(),
-        })))
+        setUploadProgress({ current: 0, total: picked.length, name: picked[0]?.name ?? '' })
+        const files: UploadedSkillFile[] = []
+        for (const [index, file] of picked.entries()) {
+          setUploadProgress({ current: index, total: picked.length, name: file.name })
+          files.push(await readSkillFile(file))
+        }
+        setUploadProgress({ current: picked.length, total: picked.length, name: t('skills.upload.saving') })
         await uploadSkill(skillUploadFromFiles(files))
       } catch (reason) {
         setError(t('skills.upload.failed', { message: describeError(reason) }))
       } finally {
         setBusy(false)
+        setUploadProgress(null)
+      }
+    })()
+  }
+
+  /** Upload the preferred ZIP package form; parsing and saving expose progress. */
+  const onPickSkillZip = (event: ChangeEvent<HTMLInputElement>): void => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (file === undefined) {
+      setError(t('skills.upload.empty'))
+      return
+    }
+    void (async () => {
+      setError(null)
+      setBusy(true)
+      setUploadProgress({ current: 0, total: 1, name: file.name })
+      try {
+        const upload = await skillUploadFromZip(new Uint8Array(await file.arrayBuffer()))
+        setUploadProgress({ current: 1, total: 1, name: t('skills.upload.saving') })
+        await uploadSkill(upload)
+      } catch (reason) {
+        setError(t('skills.upload.failed', { message: describeError(reason) }))
+      } finally {
+        setBusy(false)
+        setUploadProgress(null)
       }
     })()
   }
@@ -324,17 +391,50 @@ export function SkillsPlaza(props: SkillsPlazaProps): ReactNode {
                 >
                   {t('skills.upload')}
                 </button>
+                <button
+                  type="button"
+                  className={css.outlineButton}
+                  disabled={busy}
+                  title={t('skills.upload.folderHint')}
+                  onClick={() => { folderRef.current?.click() }}
+                >
+                  {t('skills.upload.folder')}
+                </button>
               </span>
               <input
                 ref={fileRef}
                 type="file"
-                multiple
-                {...{ webkitdirectory: '' }}
+                accept=".zip,application/zip"
                 className={css.fileInput}
-                accept=".md,.markdown,.txt,.json,.yaml,.yml,.py,.js,.ts,.tsx,.sh,.toml"
+                onChange={onPickSkillZip}
+              />
+              <input
+                ref={folderRef}
+                type="file"
+                multiple
+                {...{ webkitdirectory: '', directory: '' }}
+                className={css.fileInput}
                 onChange={onPickSkillFiles}
               />
             </div>
+
+            {uploadProgress !== null && (
+              <div className={css.uploadProgress} role="status" aria-live="polite">
+                <div className={css.uploadProgressText}>
+                  {t('skills.upload.progress', {
+                    current: String(uploadProgress.current),
+                    total: String(uploadProgress.total),
+                    name: uploadProgress.name,
+                  })}
+                </div>
+                <div className={css.uploadProgressTrack} aria-hidden="true">
+                  <span
+                    className={css.uploadProgressBar}
+                    style={{ width: `${uploadProgress.total === 0 ? 0 : uploadProgress.current / uploadProgress.total * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             {error !== null && (
               <p className={css.error} role="alert">{error}</p>

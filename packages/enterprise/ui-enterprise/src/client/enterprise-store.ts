@@ -427,11 +427,14 @@ export class EnterpriseSessionStore {
    * @returns 写入结算。
    */
   /**
-   * Replace the complete connector list from one validated JSON config.
-   * Keeping this as a single write avoids transient half-applied mounts.
+   * Merge one validated JSON config into the connector list by server name.
+   * Existing servers not named by the new config stay mounted, so adding one
+   * MCP service never overwrites the rest.
    */
   async putConnectors(connectors: readonly EnterpriseConnector[]): Promise<void> {
-    await this.scope.set('connectors', decodeConnectors(connectors))
+    const merged = new Map(this.connectors.map(connector => [connector.name, connector]))
+    for (const connector of decodeConnectors(connectors)) merged.set(connector.name, connector)
+    await this.scope.set('connectors', [...merged.values()].sort((left, right) => left.name.localeCompare(right.name)))
   }
 
   async removeConnector(name: string): Promise<void> {

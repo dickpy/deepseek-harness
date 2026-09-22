@@ -33,6 +33,7 @@ import { SettingsRoot } from './SettingsRoot.tsx'
 import { DesktopUpdateBadge } from './DesktopUpdateIndicator.tsx'
 import type { DesktopUpdateBridge } from './desktop-update-bridge.ts'
 import { DesktopUpdateSource } from './desktop-update-source.ts'
+import { SettingsPanelService } from './settings-panel.ts'
 import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
 import { GeneralSection } from './GeneralSection.tsx'
 import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
@@ -79,6 +80,7 @@ export function apply(ctx: ClientContext): void {
   const carrier = (globalThis as typeof globalThis & { dshDesktop?: { protocolVersion: number; updates?: DesktopUpdateBridge } }).dshDesktop
   const desktopUpdate = new DesktopUpdateSource(carrier?.protocolVersion === 1 ? carrier.updates : undefined)
   ctx.effect(() => () => { desktopUpdate.dispose() }, 'ui-settings-general: desktop update carrier')
+  const settingsPanel = new SettingsPanelService(ctx)
   ctx.slots.inject('sidebar.toggle.badge', () => ctx.slots.register({
     name: 'sidebar.toggle.badge', locale: NS,
     inject: () => ({ hooks: { desktopUpdate: desktopUpdate.store, connectionState: connection.state } }),
@@ -113,6 +115,7 @@ export function apply(ctx: ClientContext): void {
   const shellInjected = (): SettingsRootInjected => ({
     openDesktopUpdate: () => { desktopUpdate.open() },
     reconnect: () => { connection.reconnect() },
+    settingsPanel,
     hooks: {
       desktopUpdate: desktopUpdate.store,
       connectionState: connection.state,

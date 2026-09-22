@@ -67,6 +67,29 @@ describe('keymap keydown routing', () => {
     expect(submit).toHaveBeenCalledWith(true)
   })
 
+  it('routes / to the shared actions menu instead of inserting a command token', () => {
+    const editor = createEditor({ namespace: 'keymap-slash', onError: (e) => { throw e } })
+    const root = document.createElement('div')
+    root.contentEditable = 'true'
+    document.body.appendChild(root)
+    editor.setRootElement(root)
+    registerPlainText(editor)
+    const openCommandMenu = vi.fn(() => true)
+    registerComposerKeymap(editor, {
+      arbitrate: () => 'pass',
+      openCommandMenu,
+      space: () => false,
+      dismissPopup: () => {},
+      canSubmit: () => true,
+      submit: () => {},
+      intakeFiles: () => {},
+      pasteText: () => {},
+    })
+    const event = fireEvent.keyDown(root, { key: '/' })
+    expect(openCommandMenu).toHaveBeenCalledOnce()
+    expect(event).toBe(false)
+  })
+
   it('routes Tab through arbitration and passes when unconsumed', () => {
     const editor = createEditor({ namespace: 'keymap-routing', onError: (e) => { throw e } })
     const root = document.createElement('div')

@@ -1039,6 +1039,9 @@ importers:
       '@deepseek-ai/dsh-session-reference':
         specifier: workspace:^
         version: link:../../context/session-reference
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
       '@deepseek-ai/dsh-settings':
         specifier: workspace:^
         version: link:../../settings/settings
@@ -6205,6 +6208,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
@@ -13492,7 +13498,7 @@ packages:
     os: [linux]
 
   '@deepseek-ai/libreoffice-kit-win32-arm64@0.0.1':
-    resolution: {integrity: sha512-9G7YxXHEFaVn5iFM6IaHusWuXAd3cEprwTYSA1OsYMUREliHzdcmJEqcEyePDpX1y39KNKWQgowYeSpFbfrbgg==, tarball: https://registry.npmjs.org/@deepseek-ai/libreoffice-kit-win32-arm64/-/libreoffice-kit-win32-arm64-0.0.1.tgz}
+    resolution: {integrity: sha512-9G7YxXHEFaVn5iFM6IaHusWuXAd3cEprwTYSA1OsYMUREliHzdcmJEqcEyePDpX1y39KNKWQgowYeSpFbfrbgg==, tarball: https://registry.npmmirror.com/@deepseek-ai/libreoffice-kit-win32-arm64/-/libreoffice-kit-win32-arm64-0.0.1.tgz}
     engines: {node: '>=22.19.0'}
     cpu: [arm64]
     os: [win32]

@@ -16,8 +16,8 @@
  */
 import type { LexicalEditor } from 'lexical'
 import {
-  COMMAND_PRIORITY_CRITICAL, KEY_ARROW_DOWN_COMMAND, KEY_ARROW_UP_COMMAND, KEY_ENTER_COMMAND,
-  KEY_ESCAPE_COMMAND, KEY_SPACE_COMMAND, KEY_TAB_COMMAND, PASTE_COMMAND,
+  COMMAND_PRIORITY_CRITICAL, KEY_ARROW_DOWN_COMMAND, KEY_ARROW_UP_COMMAND, KEY_DOWN_COMMAND,
+  KEY_ENTER_COMMAND, KEY_ESCAPE_COMMAND, KEY_SPACE_COMMAND, KEY_TAB_COMMAND, PASTE_COMMAND,
 } from 'lexical'
 import { mergeRegister } from '@lexical/utils'
 import type { ArbitrateKey, ArbitrateOutcome } from '../../contract/draft-editor.ts'
@@ -26,6 +26,8 @@ import type { ArbitrateKey, ArbitrateOutcome } from '../../contract/draft-editor
 export interface ComposerKeymapHandlers {
   /** Keyboard arbitration while the menu is open ('pass' when no pipeline). */
   arbitrate(key: ArbitrateKey, composing: boolean): ArbitrateOutcome
+  /** Open the same actions menu as the + toolbar button; false falls through. */
+  openCommandMenu?(): boolean
   /** Space adjudication; true = a claim was applied — the keystroke is consumed. */
   space(): boolean
   /** Dismiss the popupSelect shell (Escape layering: an open overlay closes first). */
@@ -98,6 +100,16 @@ export function registerComposerKeymap(editor: LexicalEditor, handlers: Composer
       syncComposition()
     }),
     editor.registerUpdateListener(syncComposition),
+    // '/' is the keyboard twin of the + toolbar button. Opening the shared
+    // actions menu here prevents Lexical from inserting a command token that
+    // would otherwise open the legacy popupSelect surface.
+    editor.registerCommand(KEY_DOWN_COMMAND, (event) => {
+      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return false
+      if (isComposingEvent(event, recentlyComposing)) return false
+      if (handlers.openCommandMenu?.() !== true) return false
+      event.preventDefault()
+      return true
+    }, COMMAND_PRIORITY_CRITICAL),
     editor.registerCommand(KEY_ARROW_UP_COMMAND, arrow('up'), COMMAND_PRIORITY_CRITICAL),
     editor.registerCommand(KEY_ARROW_DOWN_COMMAND, arrow('down'), COMMAND_PRIORITY_CRITICAL),
     // Tab settles the highlighted completion and passes without one, keeping

@@ -16,6 +16,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // Type-only: pulls the settings slot declarations the shell renders into.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { DesktopUpdateView } from './desktop-update-bridge.ts'
+import type { SettingsPanelController } from './settings-panel.ts'
 
 /** One nav row projected from a settings.section registration's options. */
 export interface SettingsSectionRow {
@@ -40,6 +41,8 @@ export type SettingsRootInjected = {
   openDesktopUpdate: () => void
   /** Request a fresh logical generation and physical WebSocket immediately. */
   reconnect: () => void
+  /** Open one settings section from a feature-owned entry point. */
+  settingsPanel: SettingsPanelController
   hooks: {
     /** Shared Electron status for both sidebar locations. */
     desktopUpdate: HostObservable<DesktopUpdateView>

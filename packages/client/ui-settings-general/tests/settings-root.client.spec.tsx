@@ -99,6 +99,7 @@ function mount({
     wide,
     reconnect,
     openDesktopUpdate: () => {},
+    settingsPanel: { open: vi.fn(), register: vi.fn(() => () => {}) },
     useDesktopUpdate: select => select(desktopUpdate),
     t: makeTranslate(dictionary),
     useConnectionState: (select) => {

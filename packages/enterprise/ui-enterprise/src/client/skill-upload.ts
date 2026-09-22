@@ -6,18 +6,68 @@
  * （`<input type="file" webkitdirectory>`）或单个 SKILL.md，
  * 读出的相对路径已经能还原技能包结构。
  */
+import { strFromU8, unzip } from 'fflate/browser'
 import type { UserSkillFile, UserSkillUpload } from './enterprise-store.ts'
 
 /** 技能名语法（与 dsh 的 `isSkillName` 一致：kebab-case）。 */
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /** 浏览器读出的一个文本文件（path 是用户选择时的相对路径或文件名）。 */
-export interface UploadedTextFile {
+export interface UploadedSkillFile {
   readonly path: string
   readonly content: string
+  readonly encoding?: 'utf8' | 'base64'
 }
 
 /** 取路径最后一段。 */
+/** Text extensions retained as UTF-8; all other ZIP entries remain binary. */
+const TEXT_EXTENSIONS = new Set([
+  'md', 'markdown', 'txt', 'json', 'yaml', 'yml', 'py', 'js', 'mjs', 'cjs', 'ts', 'tsx',
+  'sh', 'toml', 'xml', 'html', 'css', 'svg', 'csv', 'ini', 'cfg', 'conf',
+])
+
+function isTextPath(path: string): boolean {
+  const name = baseName(path)
+  const extension = name.includes('.') ? name.split('.').pop()?.toLowerCase() ?? '' : ''
+  return TEXT_EXTENSIONS.has(extension)
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk))
+  }
+  return btoa(binary)
+}
+
+/** Decode one ZIP skill package locally, preserving folder paths and binary files. */
+export function skillUploadFromZip(data: Uint8Array): Promise<UserSkillUpload> {
+  return new Promise((resolve, reject) => {
+    unzip(data, (error, archive) => {
+      if (error !== null) {
+        reject(error)
+        return
+      }
+      try {
+        const files: UploadedSkillFile[] = []
+        for (const [path, bytes] of Object.entries(archive)) {
+          if (path.endsWith('/') || path.startsWith('__MACOSX/') || baseName(path) === '.DS_Store') continue
+          const encoding = isTextPath(path) ? 'utf8' : 'base64'
+          files.push({
+            path,
+            encoding,
+            content: encoding === 'utf8' ? strFromU8(bytes) : bytesToBase64(bytes),
+          })
+        }
+        resolve(skillUploadFromFiles(files))
+      } catch (cause) {
+        reject(cause)
+      }
+    })
+  })
+}
+
 function baseName(path: string): string {
   const index = path.lastIndexOf('/')
   return index < 0 ? path : path.slice(index + 1)
@@ -71,9 +121,13 @@ export function slugifySkillName(value: string): string {
  * @returns 规范化后的上传记录（`installed` 由 host 落盘后回填）。
  * @throws 当没有任何可用的 Markdown 文件时抛出。
  */
-export function skillUploadFromFiles(files: readonly UploadedTextFile[]): UserSkillUpload {
+export function skillUploadFromFiles(files: readonly UploadedSkillFile[]): UserSkillUpload {
   const normalized = files
-    .map(file => ({ path: file.path.replace(/\\/g, '/').replace(/^\.\//, ''), content: file.content }))
+    .map(file => ({
+      path: file.path.replace(/\\/g, '/').replace(/^\.\//, ''),
+      content: file.content,
+      encoding: file.encoding ?? 'utf8' as const,
+    }))
     .filter(file => file.path !== '' && !file.path.split('/').includes('..'))
   const entries = normalized.filter(file => baseName(file.path).toLowerCase() === 'skill.md')
   const entry = entries[0] ?? normalized.find(file => /\.md$/i.test(file.path))
@@ -89,7 +143,7 @@ export function skillUploadFromFiles(files: readonly UploadedTextFile[]): UserSk
       : file.path.slice(root.length)
     if (relative === '' || seen.has(relative)) continue
     seen.add(relative)
-    collected.push({ path: relative, content: file.content, encoding: 'utf8' })
+    collected.push({ path: relative, content: file.content, encoding: file.encoding })
   }
   if (!collected.some(file => file.path === 'SKILL.md')) {
     collected.unshift({ path: 'SKILL.md', content: entry.content, encoding: 'utf8' })

@@ -10,6 +10,8 @@ import {
 } from '../src/client/enterprise-store.ts'
 import { decodeExamples, exampleDraft } from '../src/client/home-examples.ts'
 import { actionDraft, decodeHome } from '../src/client/home-catalog.ts'
+import { strToU8, zipSync } from 'fflate'
+import { skillUploadFromFiles, skillUploadFromZip } from '../src/client/skill-upload.ts'
 
 /**
  * 「技能广场」的开关是**客户端写、host 读**的一条设置字段：
@@ -272,6 +274,39 @@ describe('home examples', () => {
 })
 
 
+describe('skill folder uploads', () => {
+  it('decodes ZIP packages and preserves binary assets', async () => {
+    const archive = zipSync({
+      'Demo Skill/SKILL.md': strToU8('---\nname: Demo Skill\n---\n# Demo'),
+      'Demo Skill/scripts/run.py': strToU8('print(1)'),
+      'Demo Skill/assets/icon.png': new Uint8Array([0, 1, 2]),
+      '__MACOSX/._SKILL.md': new Uint8Array([9]),
+    })
+    const upload = await skillUploadFromZip(archive)
+    expect(upload.name).toBe('demo-skill')
+    expect(upload.files).toEqual([
+      { path: 'SKILL.md', content: '---\nname: Demo Skill\n---\n# Demo', encoding: 'utf8' },
+      { path: 'scripts/run.py', content: 'print(1)', encoding: 'utf8' },
+      { path: 'assets/icon.png', content: 'AAEC', encoding: 'base64' },
+    ])
+  })
+
+  it('keeps nested files and preserves binary assets as base64', () => {
+    const upload = skillUploadFromFiles([
+      { path: 'Demo Skill/SKILL.md', content: '---\nname: Demo Skill\ndescription: Test\n---\n\n# Demo', encoding: 'utf8' },
+      { path: 'Demo Skill/scripts/run.py', content: 'print(1)', encoding: 'utf8' },
+      { path: 'Demo Skill/assets/icon.png', content: 'AAEC', encoding: 'base64' },
+      { path: 'Demo Skill/../escape.txt', content: 'bad', encoding: 'utf8' },
+    ])
+    expect(upload.name).toBe('demo-skill')
+    expect(upload.files).toEqual([
+      { path: 'SKILL.md', content: '---\nname: Demo Skill\ndescription: Test\n---\n\n# Demo', encoding: 'utf8' },
+      { path: 'scripts/run.py', content: 'print(1)', encoding: 'utf8' },
+      { path: 'assets/icon.png', content: 'AAEC', encoding: 'base64' },
+    ])
+  })
+})
+
 describe('user skills and MCP connectors', () => {
   const upload = {
     name: 'my-skill',
@@ -299,6 +334,23 @@ describe('user skills and MCP connectors', () => {
     const skills = store.store.getSnapshot().skills
     expect(skills.map(skill => [skill.name, skill.source])).toEqual([['my-skill', 'user']])
     expect(skills[0]?.enabled).toBe(true)
+  })
+
+  it('merges one MCP config into the existing connector list instead of replacing it', async () => {
+    const local = {
+      name: 'local_mcp', transport: 'stdio' as const, description: 'Local', command: 'node',
+      args: ['server.mjs'], env: {}, url: '', headers: {}, enabled: true,
+    }
+    const remote = {
+      name: 'remote_mcp', transport: 'streamable-http' as const, description: 'Remote', command: '',
+      args: [], env: {}, url: 'https://example.com/mcp', headers: {}, enabled: true,
+    }
+    const { scope, writes } = fakeScope({ connectors: [local] })
+    const store = new EnterpriseSessionStore(scope)
+    await store.load()
+    await store.putConnectors([remote])
+    expect(writes.at(-1)).toEqual({ field: 'connectors', value: [local, remote] })
+    expect(store.store.getSnapshot().connectors.map(connector => connector.name)).toEqual(['local_mcp', 'remote_mcp'])
   })
 
   it('decodes connectors and writes connector changes to the dedicated field', async () => {

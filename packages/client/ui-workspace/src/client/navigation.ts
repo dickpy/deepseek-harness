@@ -16,10 +16,15 @@ import type {
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 
+/** Visible title of the Host-created no-folder tasks Workspace. */
+const TASK_WORKSPACE_TITLE = '任务'
+
 interface MainSelection {
   readonly sessionId?: SessionId
   readonly subagentAddress?: SubagentAddress
 }
+
+
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
@@ -185,9 +190,10 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const recent = workspace.phase === 'ready' && sessions.phase === 'ready'
       ? recentWorkspace(workspace.items, sessions.byId)
       : undefined
-    const target = workspaceId ?? currentWorkspaceId ?? recent
+    const taskWorkspaceId = workspace.items.find(item => item.title === TASK_WORKSPACE_TITLE)?.workspaceId
+    const target = workspaceId ?? currentWorkspaceId ?? taskWorkspaceId ?? recent
     if (target === undefined) {
-      this.clearMain()
+      this.startUngroupedSession()
       return
     }
     void this.openWorkspace(target).catch(
@@ -222,6 +228,15 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     return result.value
   }
 
+  /** Start an ungrouped Session when the Host has not supplied a Workspace. */
+  private startUngroupedSession(): void {
+    const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
+    void this.sessions.create({}).then(
+      (sessionId) => { if (!navigation.aborted) this.replaceMain(sessionId, navigation) },
+      (reason: unknown) => { console.warn('new session failed:', reason) },
+    )
+  }
+
   private watchNavigation(): () => void {
     let initial: 'waiting' | 'connecting' | 'done' = 'waiting'
     const reconcile = (): void => {
@@ -254,7 +269,8 @@ class UiWorkspaceService extends Service implements UiWorkspace {
         }
         return
       }
-      const target = recentWorkspace(workspace.items, sessions.byId)
+      const target = workspace.items.find(item => item.title === TASK_WORKSPACE_TITLE)?.workspaceId
+        ?? recentWorkspace(workspace.items, sessions.byId)
       if (target === undefined) {
         initial = 'done'
         return

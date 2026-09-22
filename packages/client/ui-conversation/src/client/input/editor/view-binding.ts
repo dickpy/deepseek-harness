@@ -19,6 +19,7 @@ interface DraftViewGate {
   showToast: (text: string) => void
   t: ComposerBarProps['t']
   canAcceptDrop: boolean
+  toggleCommandMenu: ComposerBarProps['toggleCommandMenu']
 }
 
 /**
@@ -110,6 +111,12 @@ export function installDraftKeymap(
 ): () => void {
   return registerComposerKeymap(editor, {
     arbitrate: (key, composing) => keyboard.arbitrate(key, composing),
+    openCommandMenu: () => {
+      const g = gate.current
+      if (g.locked || g.machineBusy || g.toggleCommandMenu === undefined || keyboard.snapshot.draft.trim() !== '') return false
+      g.toggleCommandMenu(keyboard.caretSpan())
+      return true
+    },
     space: () => {
       if (gate.current.machineBusy || gate.current.locked) return false
       return keyboard.space()

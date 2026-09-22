@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { apply } from '../src/index.ts'
@@ -237,11 +237,17 @@ async function waitFor<T>(probe: () => T | undefined | Promise<T | undefined>, a
 async function startPlugin(overrides: Record<string, unknown> = {}) {
   const home = await mkdtemp(join(tmpdir(), 'dsh-enterprise-spec-'))
   process.env.DSH_HOME = home
+  const runtimeDir = join(home, 'dsh-runtimes', 'dsh-primary-runtime')
+  await mkdir(runtimeDir, { recursive: true })
+  await writeFile(join(runtimeDir, 'runtime.json'), JSON.stringify({ desktopVersion: '0.0.6' }), 'utf8')
   const fake = createFakeContext()
-  const fetchMock = vi.fn(async (input: unknown) => {
+  const fetchMock = vi.fn(async (input: unknown, _init?: RequestInit) => {
     const path = endpointOf(input)
     if (path.endsWith('/client/enroll')) {
       return new Response(JSON.stringify({ deviceToken: 'dtk_spec', config: CLOUD_CONFIG }), { status: 201 })
+    }
+    if (path.endsWith('/client/device-info')) {
+      return new Response(JSON.stringify({ ok: true }), { status: 200 })
     }
     if (path.endsWith('/client/config')) {
       return new Response(JSON.stringify(CLOUD_CONFIG), { status: 200 })
@@ -422,6 +428,12 @@ describe('enterprise plugin client bridges', () => {
 
     expect(fetchMock.mock.calls.map(call => endpointOf(call[0])))
       .not.toContain('/api/v1/client/skills/doc-polish')
+    const deviceInfo = fetchMock.mock.calls.find(call => endpointOf(call[0]) === '/api/v1/client/device-info')
+    expect(deviceInfo).toBeDefined()
+    expect(JSON.parse(String(deviceInfo?.[1]?.body))).toMatchObject({
+      installationId: expect.any(String),
+      clientVersion: '0.0.6',
+    })
     expect(existsSync(join(home, 'skills'))).toBe(false)
     expect(existsSync(join(home, 'enterprise-skills.json'))).toBe(false)
   })

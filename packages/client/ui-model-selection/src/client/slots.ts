@@ -17,6 +17,8 @@ export interface ModelSelectInjected {
   directory: SnapshotStore<ModelDirectoryState>
   /** Ensure the shared advisory catalog is loaded (errors land on the store). */
   load: () => void
+  /** Open the Models page in the settings shell. */
+  openSettings?: () => void
   /**
    * Select a complete provider/model/reasoning selection.
    * @param selection - model selection and optional adapter-owned effort.

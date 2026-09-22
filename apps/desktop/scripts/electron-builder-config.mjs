@@ -136,6 +136,8 @@ export function createElectronBuilderConfig(
       '**/*.so.*',
       '**/spawn-helper',
       '**/@vscode/ripgrep/bin/rg',
+      // The native helper loads its adjacent LibreOffice program tree by path.
+      '**/node_modules/@deepseek-ai/libreoffice-kit-*/**',
     ],
     extraResources: [
       { from: buildPaths.runtime, to: 'runtime' },

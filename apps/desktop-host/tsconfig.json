@@ -13,6 +13,9 @@
     { "path": "../../packages/jobs/jobs" },
     { "path": "../../packages/skill/skill-office" },
     { "path": "../../packages/util/home-paths" },
+    {
+      "path": "../../packages/workspace/workspace"
+    },
     { "path": "../../packages/core/tools" },
     {
       "path": "../cli"

@@ -187,8 +187,24 @@ class FakeWorkspaces implements IWorkspaces {
     }))
   }
 
-  declare readonly create: IWorkspaces['create']
-  declare readonly rename: IWorkspaces['rename']
+  readonly create = vi.fn<IWorkspaces['create']>(async ({ path }) => {
+    const existing = this.list.getSnapshot().items.find(workspace => workspace.path === path)
+    if (existing !== undefined) return existing
+    const workspaceId = wid(`created-task-${String(this.list.getSnapshot().items.length + 1)}`)
+    const created = { ...workspace(String(workspaceId), [], '2026-02-01T00:00:00.000Z'), path }
+    this.list.update(state => ({ ...state, items: [...state.items, created] }))
+    return created
+  })
+  readonly rename = vi.fn<IWorkspaces['rename']>(async (workspaceId, title) => {
+    const current = this.list.getSnapshot().items.find(item => item.workspaceId === workspaceId)
+    if (current === undefined) throw new Error(`unknown workspace ${String(workspaceId)}`)
+    const renamed = { ...current, title }
+    this.list.update(state => ({
+      ...state,
+      items: state.items.map(item => item.workspaceId === workspaceId ? renamed : item),
+    }))
+    return renamed
+  })
   declare readonly delete: IWorkspaces['delete']
   declare readonly insertBefore: IWorkspaces['insertBefore']
   declare readonly setPinned: IWorkspaces['setPinned']
@@ -412,6 +428,18 @@ describe('UiWorkspaceService', () => {
     expect(b.sessions.retain).not.toHaveBeenCalled()
   })
 
+  it('prefers the Host-created tasks Workspace for a new Session when no Workspace is current', async () => {
+    const task = { ...workspace('tasks'), title: '任务' }
+    const b = bench({
+      workspaces: workspaceState([workspace('project'), task]),
+      sessions: sessionState(),
+    })
+    b.uiWorkspace.startSession()
+    await vi.waitFor(() => {
+      expect(b.sessions.create).toHaveBeenCalledWith({ workspaceId: task.workspaceId })
+    })
+  })
+
   it('uses only an explicit Workspace or the recent-Workspace policy for new Sessions', async () => {
     const current = summary('current', { cwd: '/w/current-home', updatedAt: 1 })
     const recent = summary('recent', { cwd: '/w/recent-home', updatedAt: 2 })
@@ -449,7 +477,10 @@ describe('UiWorkspaceService', () => {
     await vi.waitFor(() => { expect(warning).toHaveBeenCalledWith('new session failed:', expect.any(Error)) })
     const empty = bench()
     empty.uiWorkspace.startSession()
-    expect(empty.selectPanel).toHaveBeenCalledWith(null)
+    await vi.waitFor(() => {
+      expect(empty.sessions.create).toHaveBeenCalledWith({})
+      expect(empty.sessions.retain).toHaveBeenLastCalledWith(sid('created-none'), { source: 'mainView' })
+    })
 
     const missingMember = bench({
       sessions: sessionState(),

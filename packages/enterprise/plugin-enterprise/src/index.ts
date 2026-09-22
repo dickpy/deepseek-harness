@@ -22,6 +22,7 @@
  * Other boundaries stay structural so the plugin can still be built and installed independently.
  */
 
+import { randomUUID } from 'node:crypto'
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -165,6 +166,7 @@ interface SettingsScopeLike {
 }
 
 const DEVICE_TOKEN_REF = 'DSH_ENTERPRISE_DEVICE_TOKEN'
+const INSTALLATION_ID_REF = 'DSH_ENTERPRISE_INSTALLATION_ID'
 const MODEL_KEY_REF = 'DSH_ENTERPRISE_MODEL_KEY'
 const PLUGIN_NS = 'dsh-enterprise'
 
@@ -172,6 +174,13 @@ const PI_AI_NS = 'llm-pi-ai'
 const DEFAULT_MODEL_NS = 'agent-default-model'
 const ENTERPRISE_ROUTE = 'enterprise'
 const log = (...args: unknown[]) => console.log('[dsh-enterprise]', ...args)
+
+interface EnterpriseDeviceIdentity {
+  installationId: string
+  deviceName: string
+  platform: string
+  clientVersion?: string
+}
 
 // ---------------------------------------------------------------------------
 // 客户端数据桥：把企业会话（用户身份 + 菜单权限）写入 dsh 设置文档的
@@ -386,8 +395,57 @@ export function normalizeConfig(raw: Record<string, unknown> | undefined): Enter
   }
 }
 
+/** 获取或生成本机稳定的设备安装实例 ID。 */
+async function ensureInstallationId(ctx: EnterpriseCtx): Promise<string> {
+  const existing = await ctx.credentials.resolve(INSTALLATION_ID_REF)
+  const current = existing?.value?.trim()
+  if (current) return current
+  const installationId = randomUUID()
+  await ctx.credentials.set(INSTALLATION_ID_REF, installationId)
+  return installationId
+}
+
+/** 读取企业桌面端打包的 runtime.json 中的 desktopVersion。 */
+async function resolveClientVersion(): Promise<string | undefined> {
+  const fromEnv = process.env.DSH_DESKTOP_VERSION?.trim()
+  if (fromEnv) return fromEnv
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+  const runtimeFiles = [
+    ...(resourcesPath ? [join(resourcesPath, 'runtime', 'primary-runtime', 'runtime.json')] : []),
+    join(resolveDshHome(), 'dsh-runtimes', 'dsh-primary-runtime', 'runtime.json'),
+  ]
+  for (const runtimeFile of runtimeFiles) {
+    try {
+      const parsed = JSON.parse(await readFile(runtimeFile, 'utf8')) as { desktopVersion?: unknown }
+      const version = typeof parsed.desktopVersion === 'string' ? parsed.desktopVersion.trim() : ''
+      if (version) return version
+    } catch {
+      // 继续尝试下一个运行时位置。
+    }
+  }
+  return undefined
+}
+
+async function resolveDeviceIdentity(
+  ctx: EnterpriseCtx,
+  config: EnterpriseConfig,
+): Promise<EnterpriseDeviceIdentity> {
+  const installationId = await ensureInstallationId(ctx)
+  const clientVersion = await resolveClientVersion()
+  return {
+    installationId,
+    deviceName: config.deviceName || hostname(),
+    platform: process.platform,
+    ...(clientVersion ? { clientVersion } : {}),
+  }
+}
+
 /** 设备注册：无令牌时用企业凭据换取设备令牌并存入本地凭据库 */
-async function ensureDeviceToken(ctx: EnterpriseCtx, config: EnterpriseConfig): Promise<string> {
+async function ensureDeviceToken(
+  ctx: EnterpriseCtx,
+  config: EnterpriseConfig,
+  identity: EnterpriseDeviceIdentity,
+): Promise<string> {
   const existing = await ctx.credentials.resolve(DEVICE_TOKEN_REF)
   if (existing?.value) return existing.value
 
@@ -410,8 +468,7 @@ async function ensureDeviceToken(ctx: EnterpriseCtx, config: EnterpriseConfig): 
     {
       email: config.email,
       password,
-      deviceName: config.deviceName || hostname(),
-      platform: process.platform,
+      ...identity,
     },
   )
   await ctx.credentials.set(DEVICE_TOKEN_REF, result.deviceToken)
@@ -419,6 +476,14 @@ async function ensureDeviceToken(ctx: EnterpriseCtx, config: EnterpriseConfig): 
   return result.deviceToken
 }
 
+/** 已注册设备上报安装实例和企业桌面端版本。 */
+async function reportDevice(
+  config: EnterpriseConfig,
+  token: string,
+  identity: EnterpriseDeviceIdentity,
+): Promise<void> {
+  await request(config.serverUrl, 'POST', '/client/device-info', identity, token)
+}
 /** 把云端下发的模型配置应用到 llm 路由（settings 热更新，无需重启） */
 async function applyModelAssignment(ctx: EnterpriseCtx, model: ModelAssignment): Promise<void> {
   // key 进本地凭据库；适配器只持有变量名引用（credential-ref），不落明文
@@ -442,7 +507,13 @@ async function applyModelAssignment(ctx: EnterpriseCtx, model: ModelAssignment):
   log(`模型下发已应用：${model.name} → ${model.baseUrl} (${model.model})`)
 }
 
-async function sync(ctx: EnterpriseCtx, config: EnterpriseConfig, token: string): Promise<void> {
+async function sync(
+  ctx: EnterpriseCtx,
+  config: EnterpriseConfig,
+  token: string,
+  identity: EnterpriseDeviceIdentity,
+): Promise<void> {
+  await reportDevice(config, token, identity)
   const cloud = await request<CloudConfig>(config.serverUrl, 'GET', '/client/config', undefined, token)
   // 首页目录要区分「平台没配过」（字段缺省）与「管理员删空了」（空数组）：
   // 服务端未下发的字段不回写，避免把已下发的目录清掉。
@@ -1235,8 +1306,9 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
 
   const bootstrap = async (serviceCtx: EnterpriseCtx) => {
     try {
-      const token = await ensureDeviceToken(serviceCtx, config)
-      await sync(serviceCtx, config, token)
+      const identity = await resolveDeviceIdentity(serviceCtx, config)
+      const token = await ensureDeviceToken(serviceCtx, config, identity)
+      await sync(serviceCtx, config, token, identity)
 
       if (config.telemetryEnabled) {
         // 令牌每次 flush 时现读凭据库（吊销/重注册即时生效）
@@ -1255,7 +1327,7 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
         void (async () => {
           try {
             const t = await serviceCtx.credentials.resolve(DEVICE_TOKEN_REF)
-            if (t?.value) await sync(serviceCtx, config, t.value)
+            if (t?.value) await sync(serviceCtx, config, t.value, identity)
           } catch (e) {
             log('云端同步失败（下个周期重试）：', e)
           }

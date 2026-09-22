@@ -236,11 +236,11 @@ export const InputBar = memo(function InputBar({
   // registration survives re-renders without re-arming per keystroke.
   const gate = useRef({
     locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter,
-    intakeFiles, uploadsPending, showToast, t, canAcceptDrop,
+    intakeFiles, uploadsPending, showToast, t, canAcceptDrop, toggleCommandMenu,
   })
   gate.current = {
     locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter,
-    intakeFiles, uploadsPending, showToast, t, canAcceptDrop,
+    intakeFiles, uploadsPending, showToast, t, canAcceptDrop, toggleCommandMenu,
   }
 
   useEffect(() => {

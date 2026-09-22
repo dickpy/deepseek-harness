@@ -54,6 +54,29 @@ function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryStat
 
 afterEach(cleanup)
 
+describe('ModelSelect settings entry', () => {
+  it('shows the custom-model action at the bottom and opens settings', () => {
+    const directory = createSnapshotStore<ModelDirectoryState>(state())
+    const openSettings = vi.fn()
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      openSettings={openSettings}
+      select={vi.fn()}
+      t={t}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: /DeepSeek-V4-Flash/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: new RegExp('^' + zh['menu.model']) }))
+    const actions = screen.getAllByRole('menuitem')
+    const configure = actions.at(-1)!
+    expect(configure.textContent).toBe(zh['menu.configure'])
+    fireEvent.click(configure)
+    expect(openSettings).toHaveBeenCalledOnce()
+  })
+})
+
 describe('ModelSelect reasoning effort', () => {
   it('renders effort names without descriptions and submits the effort as part of the session selection', async () => {
     const directory = createSnapshotStore<ModelDirectoryState>(state())
@@ -382,9 +405,10 @@ describe('ModelSelect keyboard walk', () => {
     trigger.focus()
     fireEvent.click(trigger)
     fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
-    // No rows to hand the keyboard to: the trigger keeps it, so the card's
-    // keys still reach the menu.
-    expect(document.activeElement).toBe(trigger)
+    // With no model rows, the persistent settings action is the pane's
+    // focusable row, so keyboard navigation lands there.
+    const configure = screen.getByRole('menuitem', { name: zh['menu.configure'] })
+    expect(document.activeElement).toBe(configure)
 
     const retry = screen.getByRole('button', { name: '重试' })
     retry.focus()

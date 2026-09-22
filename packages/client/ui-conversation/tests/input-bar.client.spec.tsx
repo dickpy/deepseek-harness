@@ -1629,6 +1629,18 @@ describe('command launcher chrome and control seats', () => {
     expect(launcher.getAttribute('aria-expanded')).toBe('true')
   })
 
+  it('opens the shared actions menu on slash from an empty draft only', () => {
+    const toggleCommandMenu = vi.fn()
+    const empty = bench({ toggleCommandMenu })
+    fireEvent.keyDown(empty.textarea, { key: '/' })
+    expect(toggleCommandMenu).toHaveBeenCalledExactlyOnceWith(empty.shell.caretSpan())
+
+    const nonEmptyToggle = vi.fn()
+    const nonEmpty = bench({ draft: 'text', toggleCommandMenu: nonEmptyToggle })
+    fireEvent.keyDown(nonEmpty.textarea, { key: '/' })
+    expect(nonEmptyToggle).not.toHaveBeenCalled()
+  })
+
   it('opening the command menu from the button puts the keyboard in the editor first', () => {
     const toggleCommandMenu = vi.fn()
     const { view, textarea } = bench({ toggleCommandMenu })

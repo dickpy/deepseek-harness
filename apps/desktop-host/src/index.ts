@@ -1,6 +1,9 @@
 /** Launch the Desktop profile through the Web application and report its URL to Electron. */
 
+import { mkdir } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-workspace'
 import { loadLayeredEnv, loadProfileDirectory } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -10,6 +13,14 @@ import { desktopInstallAnchor } from './install-anchor.ts'
 import * as desktopOffice from './office.ts'
 
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
+
+/** Create the dedicated no-folder Workspace used by temporary conversations. */
+async function ensureTaskWorkspace(ctx: Context): Promise<void> {
+  const path = join(resolveDshHome(), 'tasks')
+  await mkdir(path, { recursive: true })
+  if (await ctx.workspaceRegistry.resolveByPath(path) !== undefined) return
+  await ctx.workspaceRegistry.create(path, '任务')
+}
 
 async function main(): Promise<void> {
   const runtimeDir = process.argv[2] as string
@@ -66,6 +77,12 @@ async function main(): Promise<void> {
   })
   process.once('disconnect', () => { void stop() })
   const { ctx } = await application
+  try {{
+    await ensureTaskWorkspace(ctx)
+  }}
+  catch (error) {{
+    console.warn('[dsh-desktop-host] task Workspace initialization failed:', error)
+  }}
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   await ctx.plugin(desktopOffice, {
     source: process.argv[4] ?? join(runtimeDir, '..', 'runtime', 'primary-runtime'),
