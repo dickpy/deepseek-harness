@@ -238,6 +238,9 @@ export function createElectronBuilderConfig(
       allowElevation: false,
       // 经典形态放开安装目录页（默认沿用上一次注册的安装目录）。
       allowToChangeInstallationDirectory: !customInstaller,
+      // 更新时重建桌面与开始菜单快捷方式，避免沿用失效链接。
+      createDesktopShortcut: 'always',
+      createStartMenuShortcut: true,
       installerLanguages: ['en_US', 'zh_CN'],
       differentialPackage: true,
     },

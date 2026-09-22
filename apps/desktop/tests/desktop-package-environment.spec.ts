@@ -48,6 +48,15 @@ describe('Desktop local packaging configuration', () => {
     })
   })
 
+  it('loads the enterprise update origin from the platform file instead of the ambient environment', async () => {
+    await withDirectory(async (directory) => {
+      await writeFile(join(directory, '.env.windows'), 'DSH_ENTERPRISE_UPDATE_ORIGIN=https://updates.example.com\r\n')
+      const parent = { DSH_ENTERPRISE_UPDATE_ORIGIN: 'https://stale.example.com' }
+      expect(loadDesktopPackageEnvironment('win32', parent, directory)).toEqual({ DSH_ENTERPRISE_UPDATE_ORIGIN: 'https://updates.example.com' })
+      expect(parent.DSH_ENTERPRISE_UPDATE_ORIGIN).toBe('https://stale.example.com')
+    })
+  })
+
   it('loads mandatory update origins and options only from the platform file without changing its parent', async () => {
     await withDirectory(async (directory) => {
       const windowsPolicy = JSON.stringify({ intervalMs: 5000, allowedPageOrigins: ['https://download.example.invalid'] })
@@ -88,6 +97,19 @@ describe('Desktop local packaging configuration', () => {
     }).toThrow(/DSH_DESKTOP_WINDOWS_CER_FILE/u)
     expect(() => {
       validateDesktopPackageEnvironment({ ...POLICY, DSH_DESKTOP_APP_ID: RELEASE.DSH_DESKTOP_APP_ID }, WINDOWS, { unsigned: true })
+    }).not.toThrow()
+    expect(() => {
+      validateDesktopPackageEnvironment({
+        ...POLICY, DSH_DESKTOP_APP_ID: RELEASE.DSH_DESKTOP_APP_ID, DSH_DESKTOP_AUTO_UPDATE_ENV: 'enterprise',
+        DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN: 'https://policy-prod.example.com',
+      }, WINDOWS, { unsigned: true })
+    }).toThrow(/DSH_ENTERPRISE_UPDATE_ORIGIN/u)
+    expect(() => {
+      validateDesktopPackageEnvironment({
+        ...POLICY, DSH_DESKTOP_APP_ID: RELEASE.DSH_DESKTOP_APP_ID, DSH_DESKTOP_AUTO_UPDATE_ENV: 'enterprise',
+        DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN: 'https://policy-prod.example.com',
+        DSH_ENTERPRISE_UPDATE_ORIGIN: 'https://updates.example.com',
+      }, WINDOWS, { unsigned: true })
     }).not.toThrow()
     expect(() => {
       validateDesktopPackageEnvironment({ ...POLICY, DSH_DESKTOP_APP_ID: RELEASE.DSH_DESKTOP_APP_ID }, WINDOWS, { prepareOnly: true })

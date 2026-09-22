@@ -30,7 +30,7 @@ it.each(['en', 'zh-CN'])('keeps ordinary diagnostics folded, text-only, and keyb
     closeLabel: locale.messages.updateClose, technicalDetailsLabel: locale.messages.updateTechnicalDetails,
     technicalDetails: '<img src=x onerror="window.compromised=true">\nexit 0; shutdown acknowledged false' }
   const respond = vi.fn(async () => {})
-  const api: UpdateDialogApi = { status: async () => state, respond }
+  const api: UpdateDialogApi = { status: async () => state, subscribe: () => () => {}, respond }
   Object.defineProperty(p.dom.window, 'dshUpdateDialog', { value: api })
   p.run()
   await expect.poll(() => p.element('dialog').hidden).toBe(false)

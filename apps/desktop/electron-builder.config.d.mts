@@ -47,6 +47,8 @@ export interface DesktopElectronBuilderConfig {
     readonly perMachine: false
     readonly allowElevation: false
     readonly allowToChangeInstallationDirectory: boolean
+    readonly createDesktopShortcut: 'always'
+    readonly createStartMenuShortcut: true
     readonly installerLanguages: readonly ['en_US', 'zh_CN']
   }
   readonly beforeBuild: () => Promise<boolean>

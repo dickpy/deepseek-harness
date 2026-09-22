@@ -4,7 +4,7 @@ import type { DesktopLocale } from './locale.ts'
 import { createUpdateOverlay } from './update-overlay.ts'
 
 /** Channels available only to the isolated update-dialog document. */
-export const UPDATE_DIALOG_IPC = { status: 'dsh-update-dialog:status', respond: 'dsh-update-dialog:respond' } as const
+export const UPDATE_DIALOG_IPC = { status: 'dsh-update-dialog:status', presentation: 'dsh-update-dialog:presentation', respond: 'dsh-update-dialog:respond' } as const
 
 /** Text and choices supplied by the main process, never by product documents. */
 export interface UpdateDialogView {
@@ -27,6 +27,7 @@ export interface UpdateDialogOptions extends MessageBoxOptions {
 /** The document can select only a displayed response index. */
 export interface UpdateDialogApi {
   status(): Promise<UpdateDialogView>
+  subscribe(listener: (view: UpdateDialogView) => void): () => void
   respond(index: number): Promise<void>
 }
 
@@ -69,9 +70,7 @@ export class DesktopUpdateDialog {
       return Promise.resolve({ response: cancelId, checkboxChecked: false })
     }
     const window = createUpdateOverlay(parent, this.preload, options.title ?? this.locale.messages.updateTitle)
-    const view: UpdateDialogView = { locale: this.locale.id, title: options.title ?? '', message: options.message,
-      detail: options.detail ?? '', buttons, cancelId, closeLabel: this.locale.messages.updateClose,
-      technicalDetails: options.technicalDetails ?? '', technicalDetailsLabel: this.locale.messages.updateTechnicalDetails }
+    const view = this.view(options, buttons, cancelId)
     return new Promise((resolve) => {
       const abort = (): void => { finish(cancelId) }
       const finish = (response: number): void => {
@@ -90,6 +89,16 @@ export class DesktopUpdateDialog {
     })
   }
 
+  /** Replace the displayed progress or explanation without authorizing any operation. */
+  update(options: UpdateDialogOptions): void {
+    const active = this.active
+    if (active === undefined || this.disposed || active.window.isDestroyed()) return
+    const buttons = options.buttons ?? [this.locale.messages.updateAcknowledge]
+    const cancelId = options.cancelId ?? buttons.length - 1
+    active.view = this.view(options, buttons, cancelId)
+    active.window.webContents.send(UPDATE_DIALOG_IPC.presentation, active.view)
+  }
+
   /** Cancel the displayed prompt without authorizing any operation. */
   cancel(): void { this.active?.finish(this.active.view.cancelId) }
 
@@ -100,6 +109,12 @@ export class DesktopUpdateDialog {
     this.cancel()
     ipcMain.removeHandler(UPDATE_DIALOG_IPC.status)
     ipcMain.removeHandler(UPDATE_DIALOG_IPC.respond)
+  }
+
+  private view(options: UpdateDialogOptions, buttons: readonly string[], cancelId: number): UpdateDialogView {
+    return { locale: this.locale.id, title: options.title ?? '', message: options.message,
+      detail: options.detail ?? '', buttons, cancelId, closeLabel: this.locale.messages.updateClose,
+      technicalDetails: options.technicalDetails ?? '', technicalDetailsLabel: this.locale.messages.updateTechnicalDetails }
   }
 
   private owned(event: IpcMainInvokeEvent): NonNullable<DesktopUpdateDialog['active']> {

@@ -117,6 +117,8 @@ describe('desktop macOS release signature', () => {
     // 自绘形态（DSH_DESKTOP_INSTALLER=custom）由 installed-update 用例单独覆盖。
     expect(config.nsis.include).toBeUndefined()
     expect(config.nsis.allowToChangeInstallationDirectory).toBe(true)
+    expect(config.nsis.createDesktopShortcut).toBe('always')
+    expect(config.nsis.createStartMenuShortcut).toBe(true)
     expect(portablePath(config.nsis.installerSidebar)).toMatch(/\/installer\/assets\/sidebar\.bmp$/u)
     expect(config).toMatchObject({
       win: { forceCodeSigning: false, signtoolOptions: { sign: undefined } },

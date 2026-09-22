@@ -1,5 +1,8 @@
 import type { DesktopAutoUpdateTarget } from './desktop-auto-update-environment.mjs'
 
+/** Return the sibling distribution directory used for local release artifacts. */
+export function desktopDistributionDirectory(version: string, target: DesktopAutoUpdateTarget): string
+
 /** Mutable target directories plus the shared immutable download cache. */
 export interface DesktopTargetBuildPaths {
   readonly root: string

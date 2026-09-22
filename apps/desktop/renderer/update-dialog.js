@@ -7,6 +7,28 @@ function respond(index) {
   responding = true
   void api.respond(index).catch(() => { responding = false })
 }
+function render(state) {
+  view = state
+  document.documentElement.lang = state.locale
+  document.title = state.title
+  document.getElementById('title').textContent = state.message
+  document.getElementById('detail').textContent = state.detail
+  document.getElementById('detail').hidden = state.detail === ''
+  document.getElementById('close').setAttribute('aria-label', state.closeLabel)
+  document.getElementById('technical-details').hidden = state.technicalDetails === ''
+  document.getElementById('technical-details-label').textContent = state.technicalDetailsLabel
+  document.getElementById('technical-details-content').textContent = state.technicalDetails
+  const actions = document.getElementById('actions')
+  actions.replaceChildren()
+  for (const [index, label] of state.buttons.entries()) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = label
+    button.className = index === 0 ? 'primary' : 'secondary'
+    button.addEventListener('click', () => { respond(index) })
+    actions.append(button)
+  }
+}
 document.getElementById('close').addEventListener('click', () => { respond(view.cancelId) })
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && view !== undefined) { event.preventDefault(); respond(view.cancelId) }
@@ -18,25 +40,9 @@ document.addEventListener('keydown', event => {
   event.preventDefault()
   controls[next].focus()
 })
+api.subscribe(render)
 void api.status().then(state => {
-  view = state
-  document.documentElement.lang = state.locale
-  document.title = state.title
-  document.getElementById('title').textContent = state.message
-  document.getElementById('detail').textContent = state.detail
-  document.getElementById('detail').hidden = state.detail === ''
-  document.getElementById('close').setAttribute('aria-label', state.closeLabel)
-  document.getElementById('technical-details').hidden = state.technicalDetails === ''
-  document.getElementById('technical-details-label').textContent = state.technicalDetailsLabel
-  document.getElementById('technical-details-content').textContent = state.technicalDetails
-  for (const [index, label] of state.buttons.entries()) {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.textContent = label
-    button.className = index === 0 ? 'primary' : 'secondary'
-    button.addEventListener('click', () => { respond(index) })
-    document.getElementById('actions').append(button)
-  }
+  render(state)
   document.querySelector('main').hidden = false
   document.getElementById('dialog').focus()
 })

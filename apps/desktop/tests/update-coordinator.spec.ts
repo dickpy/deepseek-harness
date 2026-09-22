@@ -139,7 +139,7 @@ describe('desktop update coordinator', () => {
     expect(f.coordinator.state).toEqual({ phase: 'ready', version: '1.1.0-rc.2' })
     await f.coordinator.install('1.1.0-rc.2')
     expect(f.beforeRestart).toHaveBeenCalledOnce()
-    expect(f.quitAndInstall).toHaveBeenCalledWith(true, true)
+    expect(f.quitAndInstall).toHaveBeenCalledWith(false, true)
     expect(f.states.map(state => state.phase)).toEqual([
       'available', 'downloading', 'downloading', 'verifying', 'ready', 'installing',
     ])
