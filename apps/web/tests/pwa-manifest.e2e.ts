@@ -10,33 +10,32 @@ it('ships install metadata with the built web application', async () => {
   expect(index).toContain('<link rel="manifest" href="./manifest.webmanifest" />')
 
   const manifest: unknown = JSON.parse(await readFile(join(DIST_ROOT, 'manifest.webmanifest'), 'utf8'))
+  // No `id`: a browser resolves an explicit `id` against the start URL's origin,
+  // so only an absent `id`, which defaults to the resolved `start_url`, gives
+  // each mount its own identity. `public-mount.e2e.ts` reads the resolved form.
   expect(manifest).toEqual({
-    id: '/',
-    name: '维小智',
-    short_name: '维小智',
-    start_url: '/',
-    scope: '/',
+    name: 'DeepSeek Harness',
+    short_name: 'DSH',
+    start_url: './',
+    scope: './',
     display: 'fullscreen',
-    icons: [
-      {
-        src: '/logo-256.png',
-        sizes: '256x256',
-        type: 'image/png',
-        purpose: 'any',
-      },
-      {
-        src: '/logo-512.png',
-        sizes: '512x512',
-        type: 'image/png',
-        purpose: 'any',
-      },
-    ],
+    icons: [{
+      src: 'favicon.svg',
+      sizes: 'any',
+      type: 'image/svg+xml',
+      purpose: 'any',
+    }],
   })
 })
 
-it('ships the raster favicon assets the document references', async () => {
+it('ships fixed-color favicons selected by document media queries', async () => {
   const index = await readFile(join(DIST_ROOT, 'index.html'), 'utf8')
-  expect(index).toContain('href="./favicon.ico"')
-  expect(index).toContain('href="./logo-128.png"')
-  await expect(readFile(join(DIST_ROOT, 'favicon.ico'))).resolves.toBeDefined()
+  expect(index).toContain('<link rel="icon" type="image/svg+xml" href="./favicon-dark.svg" media="(prefers-color-scheme: dark)" />')
+  expect(index).toContain('<link rel="icon" type="image/svg+xml" href="./favicon.svg" media="(prefers-color-scheme: light)" />')
+  const light = await readFile(join(DIST_ROOT, 'favicon.svg'), 'utf8')
+  const dark = await readFile(join(DIST_ROOT, 'favicon-dark.svg'), 'utf8')
+  expect(light).not.toContain('<style>')
+  expect(light).toContain('fill="#000"')
+  expect(dark).toContain('fill="#fff"')
+  expect(dark.replace('fill="#fff"', 'fill="#000"')).toBe(light)
 })

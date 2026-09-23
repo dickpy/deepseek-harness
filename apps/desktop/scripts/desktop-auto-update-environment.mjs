@@ -6,22 +6,9 @@ import { valid } from 'semver'
 export const DESKTOP_AUTO_UPDATE_ENV = 'DSH_DESKTOP_AUTO_UPDATE_ENV'
 
 const UPDATE_ENVIRONMENTS = {
-  // 企业自托管更新源：DSH_ENTERPRISE_UPDATE_ORIGIN 指向自有 HTTPS 静态服务器，
-  // 产物由 IT 手动上传（无需腾讯 COS）。
-  enterprise: {
-    originEnvName: 'DSH_ENTERPRISE_UPDATE_ORIGIN',
-    fixedOrigin: undefined,
-    channel: 'latest',
-    feedPath: '_/harness/desktop/stable',
-    bucketEnvName: undefined,
-    secretIdEnvName: undefined,
-    secretKeyEnvName: undefined,
-  },
   test: {
     originEnvName: 'DOWNLOAD_TEST_ORIGIN',
     fixedOrigin: undefined,
-    channel: 'nightly',
-    feedPath: 'dsh-desk/feeds',
     bucketEnvName: 'DOWNLOAD_TEST_COS_BUCKET',
     secretIdEnvName: 'DOWNLOAD_TEST_COS_SECRET_ID',
     secretKeyEnvName: 'DOWNLOAD_TEST_COS_SECRET_KEY',
@@ -29,8 +16,6 @@ const UPDATE_ENVIRONMENTS = {
   production: {
     originEnvName: undefined,
     fixedOrigin: 'https://download.deepseek.com',
-    channel: 'nightly',
-    feedPath: 'dsh-desk/feeds',
     bucketEnvName: 'DOWNLOAD_PROD_COS_BUCKET',
     secretIdEnvName: 'DOWNLOAD_PROD_COS_SECRET_ID',
     secretKeyEnvName: 'DOWNLOAD_PROD_COS_SECRET_KEY',
@@ -39,27 +24,6 @@ const UPDATE_ENVIRONMENTS = {
 
 const UPDATE_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64'])
 
-const UPDATE_CHANNELS = new Set(['latest', 'nightly'])
-
-/**
- * 维小智发布产物的文件名前缀。
- * electron-builder 用它派生安装包、ZIP、DMG 及其 blockmap 的名字，
- * 更新元数据里的 `files[].url` 也指向同一批名字，所以这里必须与
- * `electron-builder.config.mjs` 的 `artifactName` 保持一致。
- */
-export const DESKTOP_ARTIFACT_PREFIX = 'vtl-xiaozhi'
-
-/**
- * Return the electron-builder artifact base name for one release target.
- * @param {string} version - Desktop semantic version.
- * @param {string} os - Target operating system segment (`mac` or `win`).
- * @param {string} arch - Target architecture segment.
- * @returns {string} Artifact base name without its extension.
- */
-export function desktopArtifactBasename(version, os, arch) {
-  return `${DESKTOP_ARTIFACT_PREFIX}-${version}-${os}-${arch}`
-}
-
 /**
  * Resolve the update deployment, defaulting local release work to test.
  * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
@@ -67,8 +31,8 @@ export function desktopArtifactBasename(version, os, arch) {
  */
 export function resolveDesktopAutoUpdateEnvironment(env) {
   const value = env[DESKTOP_AUTO_UPDATE_ENV]?.trim() || 'test'
-  if (value !== 'test' && value !== 'production' && value !== 'enterprise') {
-    throw new Error(`desktop auto-update: ${DESKTOP_AUTO_UPDATE_ENV} must be "test", "production" or "enterprise"`)
+  if (value !== 'test' && value !== 'production') {
+    throw new Error(`desktop auto-update: ${DESKTOP_AUTO_UPDATE_ENV} must be "test" or "production"`)
   }
   return value
 }
@@ -104,20 +68,16 @@ export function desktopBuildRecordFilename(target) {
  * Return the electron-builder channel metadata filename for an application version.
  * @param {string} version - Desktop semantic version.
  * @param {NodeJS.Platform} platform - Target platform.
- * @param {string} [channel] - Update channel prefix, for example 'latest' or 'nightly'.
  * @returns {string} Channel metadata filename emitted for the target.
  */
-export function desktopUpdateMetadataFilename(version, platform, channel = 'nightly') {
+export function desktopUpdateMetadataFilename(version, platform) {
   if (valid(version) === null) {
     throw new Error(`desktop auto-update: invalid Desktop version ${JSON.stringify(version)}`)
   }
   if (platform !== 'darwin' && platform !== 'win32') {
     throw new Error(`desktop auto-update: unsupported metadata platform ${platform}`)
   }
-  if (!UPDATE_CHANNELS.has(channel)) {
-    throw new Error(`desktop auto-update: unsupported update channel ${JSON.stringify(channel)}`)
-  }
-  return `${channel}${platform === 'darwin' ? '-mac' : ''}.yml`
+  return `nightly${platform === 'darwin' ? '-mac' : ''}.yml`
 }
 
 /**
@@ -160,12 +120,12 @@ function httpsOrigin(value, name) {
 }
 
 /**
- * Resolve the public updater URL for one release target.
+ * Resolve the public updater URL and object prefixes for one release target.
  * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
  * @param {NodeJS.Platform} platform - Target Node.js platform.
  * @param {string} arch - Target Node.js architecture.
- * @returns {{ environment: 'test' | 'production' | 'enterprise', target: 'mac-arm64' | 'mac-x64' | 'win-x64', channel: string, origin: string, publicUrl: string, keyPrefix: string }} Resolved updater configuration.
- * @throws {Error} When the test deployment lacks a valid HTTPS origin.
+ * @returns {{ environment: 'test' | 'production', target: 'mac-arm64' | 'mac-x64' | 'win-x64', origin: string, publicUrl: string, keyPrefix: string, binaryKeyPrefix: string }} Resolved updater configuration.
+ * @throws {Error} When the test deployment lacks a valid HTTPS origin or a 32-character lowercase hexadecimal release ID.
  */
 export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
   const environment = resolveDesktopAutoUpdateEnvironment(env)
@@ -177,13 +137,21 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
     if (originEnvName === undefined) throw new Error('desktop auto-update: selected deployment has no origin')
     origin = httpsOrigin(requiredEnvironmentValue(env, originEnvName), originEnvName)
   }
-  const keyPrefix = `${deployment.feedPath}/${target}`
+  let releasePrefix = 'dsh-desk'
+  if (environment === 'test') {
+    const releaseId = requiredEnvironmentValue(env, 'DOWNLOAD_TEST_RELEASE_ID')
+    if (!/^[a-f0-9]{32}$/u.test(releaseId)) {
+      throw new Error('desktop auto-update: DOWNLOAD_TEST_RELEASE_ID must contain 32 lowercase hexadecimal characters')
+    }
+    releasePrefix += `/${releaseId}`
+  }
+  const keyPrefix = `${releasePrefix}/feeds/${target}`
   return {
     environment,
     target,
-    channel: deployment.channel,
     origin,
     keyPrefix,
+    binaryKeyPrefix: `${releasePrefix}/bin/${target}`,
     publicUrl: `${origin}/${keyPrefix}/`,
   }
 }
@@ -193,8 +161,8 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
  * @param {NodeJS.ProcessEnv} env - Upload environment.
  * @param {NodeJS.Platform} platform - Target Node.js platform.
  * @param {string} arch - Target Node.js architecture.
- * @returns {{ environment: 'test' | 'production', target: 'mac-arm64' | 'mac-x64' | 'win-x64', channel: string, origin: string, publicUrl: string, keyPrefix: string, bucket: string, secretIdEnvName: string, secretKeyEnvName: string }} Resolved upload configuration.
- * @throws {Error} When the selected deployment lacks a required origin or bucket, or the test origin is not HTTPS.
+ * @returns {{ environment: 'test' | 'production', target: 'mac-arm64' | 'mac-x64' | 'win-x64', origin: string, publicUrl: string, keyPrefix: string, binaryKeyPrefix: string, bucket: string, secretIdEnvName: string, secretKeyEnvName: string }} Resolved upload configuration.
+ * @throws {Error} When the selected deployment lacks a bucket or valid updater configuration.
  */
 export function resolveDesktopUploadConfig(env, platform, arch) {
   const update = resolveDesktopAutoUpdateConfig(env, platform, arch)

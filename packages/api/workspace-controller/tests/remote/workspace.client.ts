@@ -19,11 +19,11 @@ import type {
   WorkspaceInsertBeforeRequest,
   WorkspaceInsertSessionBeforeRequest,
   WorkspaceOrderValue,
-  WorkspacePinSessionValue,
+  WorkspacePinSessionRequest,
+  WorkspacePinValue,
   WorkspaceRenameRequest,
-  WorkspaceSetSessionPinnedRequest,
-  WorkspaceSetPinnedRequest,
   WorkspaceUnarchiveSessionRequest,
+  WorkspaceUnpinSessionRequest,
   WorkspaceValue,
   WorkspaceView,
 } from '../../src/types.ts'
@@ -62,16 +62,14 @@ export function workspace(id: string, overrides: Partial<WorkspaceView> = {}): W
 }
 
 /**
- * A baseline frame holding the named Workspaces and no archived Sessions.
+ * A baseline frame holding the named Workspaces and no archived or pinned Sessions.
  * @param ids - Workspace ids in registry order.
  * @returns the frame.
  */
 export function baseline(...ids: readonly string[]): WorkspaceBaselineFrame {
   return {
     type: 'baseline',
-    value: {
-      items: ids.map(id => workspace(id)), archivedSessionIds: [], pinnedWorkspaceIds: [], pinnedSessionIds: [],
-    },
+    value: { items: ids.map(id => workspace(id)), archivedSessionIds: [], pinnedSessionIds: [] },
   }
 }
 
@@ -93,6 +91,7 @@ export function followGenerations(generations: readonly StreamScript[]): StreamS
 /** Default answers: every command accepted and echoed back as the row or set it names. */
 export const workspaceWorld: RemoteTable = {
   unary: {
+    'workspace/initializeDefault': (): RemoteResult<WorkspaceValue> => ok({ workspace: workspace('default') }),
     'workspace/create': (request: WorkspaceCreateRequest): RemoteResult<WorkspaceCreateValue> => ok({
       workspace: workspace('created', { path: request.path }), created: true,
     }),
@@ -100,22 +99,13 @@ export const workspaceWorld: RemoteTable = {
       workspace: workspace(String(request.workspaceId), { title: request.title }),
     }),
     'workspace/delete': (_request: WorkspaceDeleteRequest): RemoteResult<WorkspaceDeleteValue> => ok({ deleted: true }),
-    'workspace/insertBefore': (request: WorkspaceInsertBeforeRequest): RemoteResult<WorkspaceOrderValue> => ok({
-      workspaceIds: [request.workspaceId], pinnedWorkspaceIds: [],
-    }),
-    'workspace/setPinned': (request: WorkspaceSetPinnedRequest): RemoteResult<WorkspaceOrderValue> => ok({
-      workspaceIds: [request.workspaceId],
-      pinnedWorkspaceIds: request.pinned ? [request.workspaceId] : [],
-    }),
+    'workspace/insertBefore': (request: WorkspaceInsertBeforeRequest): RemoteResult<WorkspaceOrderValue> => ok({ workspaceIds: [request.workspaceId] }),
     'workspace/insertSessionBefore': (request: WorkspaceInsertSessionBeforeRequest): RemoteResult<WorkspaceValue> => ok({
       workspace: workspace(String(request.workspaceId), { sessionIds: [request.sessionId] }),
     }),
     'workspace/archiveSession': (request: WorkspaceArchiveSessionRequest): RemoteResult<WorkspaceArchiveValue> => ok({ archivedSessionIds: [request.sessionId] }),
-    'workspace/setSessionPinned': (
-      request: WorkspaceSetSessionPinnedRequest,
-    ): RemoteResult<WorkspacePinSessionValue> => ok({
-      pinnedSessionIds: request.pinned ? [request.sessionId] : [],
-    }),
     'workspace/unarchiveSession': (_request: WorkspaceUnarchiveSessionRequest): RemoteResult<WorkspaceArchiveValue> => ok({ archivedSessionIds: [] }),
+    'workspace/pinSession': (request: WorkspacePinSessionRequest): RemoteResult<WorkspacePinValue> => ok({ pinnedSessionIds: [request.sessionId] }),
+    'workspace/unpinSession': (_request: WorkspaceUnpinSessionRequest): RemoteResult<WorkspacePinValue> => ok({ pinnedSessionIds: [] }),
   },
 }

@@ -8,12 +8,12 @@ import { dump, load } from 'js-yaml'
 import { prerelease } from 'semver'
 import type { DesktopPackageTargetName } from './package-target.ts'
 import {
-  desktopArtifactBasename,
   desktopBuildRecordFilename,
   desktopUpdateMetadataFilename,
   resolveDesktopUploadConfig,
 } from './desktop-auto-update-environment.mjs'
 import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { validateDesktopBuildVersion } from './desktop-build-version.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
@@ -48,6 +48,10 @@ export interface DesktopUploadPlan {
   readonly secretIdEnvName: string
   readonly secretKeyEnvName: string
   readonly artifacts: readonly DesktopUploadArtifact[]
+  /** Commit the artifacts were packaged from, absent for a package built before builds recorded it. */
+  readonly commit?: string
+  /** Whether that checkout carried uncommitted changes. */
+  readonly dirty?: boolean
 }
 
 /** Filesystem and environment inputs used to validate one upload. */
@@ -183,24 +187,33 @@ export async function createDesktopUploadPlan(
   const artifactsRoot = options.artifactsRoot ?? desktopTargetBuildPaths(targetName).artifacts
   const dshVersion = await manifestVersion(join(repositoryRoot, 'package.json'), 'dsh package')
   const desktopVersion = await manifestVersion(join(appRoot, 'package.json'), 'desktop package')
-  // fork: 产品版本与 dsh 版本解耦。更新源上的产物名与频道元数据名都来自 electron-builder 的
-  // appInfo.version（产品版本）；dshVersion 只用于核对构建记录里绑定的那个运行时。
+  if (dshVersion !== desktopVersion) {
+    throw new Error(`desktop upload: desktop version ${desktopVersion} does not match current dsh version ${dshVersion}`)
+  }
 
   const update = resolveDesktopUploadConfig(environment, target.platform, target.arch)
   const buildRecord = await jsonFile(
     join(artifactsRoot, desktopBuildRecordFilename(targetName)),
     `${targetName} package completion record`,
   )
+  // Packaging wrote the version it published; reading it back keeps release settings out of shell variables.
+  const recordedVersion = stringField(buildRecord.version, `${targetName} package completion record.version`)
+  let buildVersion: string
+  try {
+    buildVersion = validateDesktopBuildVersion(recordedVersion, dshVersion)
+  }
+  catch (error) {
+    throw new Error(`desktop upload: ${targetName} package completion record holds ${recordedVersion}, which is not a build of dsh ${dshVersion}: ${
+      error instanceof Error ? error.message : String(error)}`)
+  }
   if (buildRecord.schemaVersion !== 1
     || buildRecord.target !== targetName
-    || buildRecord.version !== desktopVersion
-    || buildRecord.dshVersion !== dshVersion
     || buildRecord.environment !== update.environment
     || buildRecord.publicUrl !== update.publicUrl) {
-    throw new Error(`desktop upload: ${targetName} package completion record does not match desktop ${desktopVersion}, dsh ${dshVersion} and ${update.environment} update destination`)
+    throw new Error(`desktop upload: ${targetName} package completion record for ${buildVersion} does not match the ${update.environment} update destination`)
   }
 
-  const metadataFilename = desktopUpdateMetadataFilename(desktopVersion, target.platform, update.channel)
+  const metadataFilename = desktopUpdateMetadataFilename(buildVersion, target.platform)
   const metadataPath = join(artifactsRoot, metadataFilename)
   let metadataValue: unknown
   try {
@@ -211,19 +224,19 @@ export async function createDesktopUploadPlan(
   }
   const metadata = object(metadataValue, metadataFilename)
   const metadataVersion = stringField(metadata.version, `${metadataFilename}.version`)
-  if (metadataVersion !== desktopVersion) {
-    throw new Error(`desktop upload: ${metadataFilename} version ${metadataVersion} does not match current desktop version ${desktopVersion}`)
+  if (metadataVersion !== buildVersion) {
+    throw new Error(`desktop upload: ${metadataFilename} version ${metadataVersion} does not match published version ${buildVersion}`)
   }
   if (!Array.isArray(metadata.files) || metadata.files.length !== 1) {
     throw new Error(`desktop upload: ${metadataFilename}.files must contain exactly one target update file`)
   }
 
-  const base = desktopArtifactBasename(desktopVersion, target.os, target.arch)
+  const base = `deepseek-harness-${buildVersion}-${target.os}-${target.arch}`
   const updaterExtension = target.platform === 'darwin' ? 'zip' : 'exe'
   const updaterInfo = updateFileInfo(metadata.files[0], `${metadataFilename}.files[0]`, `${base}.${updaterExtension}`)
   const updaterPath = await verifyChecksummedArtifact(artifactsRoot, updaterInfo)
   const artifacts: DesktopUploadArtifact[] = []
-  const binaryPrefix = `dsh-desk/bin/${targetName}`
+  const binaryPrefix = update.binaryKeyPrefix
 
   if (target.platform === 'darwin') {
     const dmgPath = await requireArtifact(artifactsRoot, `${base}.dmg`)
@@ -255,21 +268,20 @@ export async function createDesktopUploadPlan(
     contents: dump(published),
   }
   artifacts.push(channelArtifact)
-  // fork: 频道跟着产品版本走（产物名与元数据名同源），dsh 版本只用于校验运行时。
-  if (prerelease(desktopVersion) === null) {
-    const stableFilename = desktopUpdateMetadataFilename(desktopVersion, target.platform, 'latest')
-    if (stableFilename !== metadataFilename) {
-      artifacts.push({ ...channelArtifact, filename: stableFilename, key: `${update.keyPrefix}/${stableFilename}` })
-    }
+  if (prerelease(buildVersion) === null) {
+    const stableFilename = metadataFilename.replace('nightly', 'latest')
+    artifacts.push({ ...channelArtifact, filename: stableFilename, key: `${update.keyPrefix}/${stableFilename}` })
   }
   return {
     environment: update.environment,
     target: targetName,
-    version: desktopVersion,
+    version: buildVersion,
     publicUrl: update.publicUrl,
     bucket: update.bucket,
     secretIdEnvName: update.secretIdEnvName,
     secretKeyEnvName: update.secretKeyEnvName,
     artifacts,
+    ...typeof buildRecord.commit === 'string' ? { commit: buildRecord.commit } : {},
+    ...typeof buildRecord.dirty === 'boolean' ? { dirty: buildRecord.dirty } : {},
   }
 }

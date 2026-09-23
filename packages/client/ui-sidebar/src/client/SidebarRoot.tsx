@@ -16,12 +16,11 @@
  * scrollbar indirection away while it is elsewhere, so a list the user is not
  * pointing at carries no bar.
  */
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  BrandLogo, IconNewChatOutline16, IconPanelLeftOutline16, isDarwinDesktop, Tooltip,
+  FishLogo, IconNewChatOutlineMedium, IconNewChatOutlineRegular, IconPanelLeftOutlineRegular, isDarwinDesktop, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { isEnterpriseHidden, subscribeEnterpriseHidden } from '@deepseek-ai/dsh-client-ui-slots'
 import type { InjectFace, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   SidebarPanelMetadata, SidebarRootComponentProps, SidebarRootInjected, SidebarSectionOwnerProps,
@@ -38,13 +37,6 @@ const COLLAPSE_SETTLE_MS = 150
  * edge — on the way to the conversation, or around a portalled menu.
  */
 const SCROLLBAR_LINGER_MS = 2000
-
-/**
- * fork: 企业管理台「会话」菜单权限控制的表面 id（写入方 ui-enterprise）。
- * 隐藏时收起「新会话」入口：品牌行不再是新建会话的快捷方式，New Session 按钮也不渲染。
- * 会话列表中已有会话的导航入口保留——那是浏览历史，不是新建能力。
- */
-const CHAT_SURFACE = 'workspace.chat'
 
 /** Format complete-build metadata for the local brand badge. */
 function localBuildVersion(): string | undefined {
@@ -88,38 +80,6 @@ function PanelRow({ id, label, wide, usePanelInfo, selectPanel, renderSlot }: Pa
   )
 }
 
-type BrandIdentityProps = {
-  buildVersion: string | undefined
-  t: SidebarRootComponentProps['t']
-  renderSlot: SidebarRootComponentProps['renderSlot']
-}
-
-/**
- * fork: the brand mark + name content, shared by the interactive New Session
- * shortcut and the plain mark shown when the enterprise menu hides chat.
- */
-function BrandIdentity({ buildVersion, t, renderSlot }: BrandIdentityProps) {
-  return (
-    <span className={css.brandIdentity} aria-hidden="true">
-      <span className={css.brandMark}>
-        {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <BrandLogo size={24} /> })}
-      </span>
-      <span className={css.brandName}>
-        {renderSlot('sidebar.brand.name', {}, {
-          fallback: buildVersion === undefined
-            ? <span className={css.fallbackBrandName}>{t('brand.localBuild')}</span>
-            : (
-              <span className={css.localBuildBrand}>
-                <span className={css.localBuildTitle}>{t('brand.localBuild')}</span>
-                <span className={css.buildVersion}>{buildVersion}</span>
-              </span>
-            ),
-        })}
-      </span>
-    </span>
-  )
-}
-
 /**
  * Render the sidebar column shell.
  * @param props - composed slot props (runtime share + injected callbacks, contract/slots.ts).
@@ -137,11 +97,6 @@ export function SidebarRoot({
   renderSlot,
 }: SidebarRootComponentProps) {
   const panels = usePanels(snapshot => snapshot)
-  // fork: 企业菜单权限把「会话」整块隐藏时，收起新建会话入口（见 CHAT_SURFACE）。
-  const chatHidden = useSyncExternalStore(
-    subscribeEnterpriseHidden,
-    () => isEnterpriseHidden(CHAT_SURFACE),
-  )
   // Wide content stays mounted while the collapse animates (fading via
   // .collapsed .wide), unmounts at settle, and remounts right away on expand.
   const [settled, setSettled] = useState(collapsed)
@@ -152,6 +107,10 @@ export function SidebarRoot({
   }, [collapsed])
   const windowsTitlebar = document.documentElement.hasAttribute('data-windows-titlebar')
   const wide = windowsTitlebar ? !collapsed : !collapsed || !settled
+  // The Windows caption menus occupy the strip to the right of these controls
+  // (that is what --dsh-windows-menu-start reserves), so a right-side bubble
+  // lands under their text. Below the caption is the only clear side.
+  const captionTooltipSide = windowsTitlebar ? 'bottom' : 'right'
 
   // Freeze the content at its expanded width while it fades out (collapsed
   // && wide): the sliding column then clips it instead of reflowing it. The
@@ -214,7 +173,7 @@ export function SidebarRoot({
   // (the expand affordance, figma sidebar-hover flow). Expanded it is a plain
   // panel icon.
   const toggle = (
-    <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
+    <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500} side={captionTooltipSide}>
       <button
         type="button"
         className={clsx(css.iconButton, css.toggle)}
@@ -223,11 +182,11 @@ export function SidebarRoot({
       >
         {!wide && !windowsTitlebar && (
           <span className={css.railMark} aria-hidden="true">
-            {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <BrandLogo size={24} /> })}
+            {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
           </span>
         )}
         {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
-        <IconPanelLeftOutline16 className={css.panelIcon} size={wide || windowsTitlebar ? 16 : 18} />
+        <IconPanelLeftOutlineRegular className={css.panelIcon} size={wide || windowsTitlebar ? 16 : 18} />
         {!wide && renderSlot('sidebar.toggle.badge', {})}
       </button>
     </Tooltip>
@@ -251,16 +210,32 @@ export function SidebarRoot({
           traffic lights and keeps the toggle at the sidebar's top-right. */}
       {darwinDesktop && <div className={css.topStrip}>{toggle}</div>}
       <div className={css.logoRow}>
-        {/* Expanded, the brand doubles as a New Session shortcut; the
-            collapsed rail's logo is the expand toggle below instead. When the
-            enterprise menu hides chat, the brand stays as a plain mark. */}
-        {wide && (
-          chatHidden
-            ? (
-              <span className={clsx(css.brand, css.brandStatic, css.wide)}>
-                <BrandIdentity buildVersion={buildVersion} t={t} renderSlot={renderSlot} />
+        {/* Expanded, the brand doubles as a New Session shortcut — except on
+            macOS, where it stays part of the logo row's window-drag surface
+            (a button would subtract itself through the global no-drag rule);
+            the collapsed rail's logo is the expand toggle below instead. */}
+        {wide && (() => {
+          const identity = (
+            <span className={css.brandIdentity} aria-hidden="true">
+              <span className={css.brandMark}>
+                {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
               </span>
-            )
+              <span className={css.brandName}>
+                {renderSlot('sidebar.brand.name', {}, {
+                  fallback: buildVersion === undefined
+                    ? <span className={css.fallbackBrandName}>{t('brand.localBuild')}</span>
+                    : (
+                      <span className={css.localBuildBrand}>
+                        <span className={css.localBuildTitle}>{t('brand.localBuild')}</span>
+                        <span className={css.buildVersion}>{buildVersion}</span>
+                      </span>
+                    ),
+                })}
+              </span>
+            </span>
+          )
+          return darwinDesktop
+            ? <span className={clsx(css.brand, css.wide)}>{identity}</span>
             : (
               <button
                 type="button"
@@ -268,32 +243,29 @@ export function SidebarRoot({
                 aria-label={t('session.new.label')}
                 onClick={() => { startSession() }}
               >
-                <BrandIdentity buildVersion={buildVersion} t={t} renderSlot={renderSlot} />
+                {identity}
               </button>
             )
-        )}
+        })()}
+        {!darwinDesktop && toggle}
       </div>
 
       {/* Expanded, the button carries its own label — tooltip only on the rail. */}
-      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
+      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide} side={captionTooltipSide}>
         <button
           type="button"
           className={css.newSession}
           aria-label={t('session.new.label')}
           onClick={() => { startSession() }}
         >
-          <IconNewChatOutline16 size={wide ? 14 : windowsTitlebar ? 16 : 18} />
+          {/* The rail draws Regular: Medium's 1.3px stroke scaled to the rail's
+              larger glyph reads visibly heavier than the neighboring 1px icons. */}
+          {wide
+            ? <IconNewChatOutlineMedium size={14} />
+            : <IconNewChatOutlineRegular size={windowsTitlebar ? 16 : 18} />}
           {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
         </button>
       </Tooltip>
-
-      {/* fork: 企业内部导航（技能广场），夹在「新会话」与工作区列表之间。
-          未注册（非企业部署或菜单权限隐藏）时该列位不渲染任何内容。 */}
-      <div className={css.skillsArea}>
-        {renderSlot('sidebar.skills', { wide })}
-      </div>
-
-      {!darwinDesktop && toggle}
 
       {panels.length > 0 && (
         <nav className={css.panelList} aria-label={t('panels.label')}>
@@ -320,8 +292,7 @@ export function SidebarRoot({
         })}
       </div>
 
-      {/* Footer row (fork): additive actions hold the left edge, Settings is
-          pinned to the right. The rail stacks and centers the two. */}
+      {/* Footer actions stack above Settings in both sidebar widths. */}
       <div className={css.footArea}>
         <div className={css.footerActions}>
           {renderSlot('sidebar.footer.action', { wide })}

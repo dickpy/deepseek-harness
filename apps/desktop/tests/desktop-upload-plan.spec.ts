@@ -15,6 +15,7 @@ import type { DesktopPackageTargetName } from '../scripts/package-target.ts'
 const temporaryDirectories: string[] = []
 const TEST_ORIGIN = 'https://desktop-updates.example.com'
 const TEST_BUCKET = 'test-download-bucket'
+const RELEASE_ID = '0123456789abcdef0123456789abcdef'
 const PRODUCTION_BUCKET = 'production-download-bucket'
 /** fork: 内置 dsh 运行时版本，故意与桌面产品版本取不同值，覆盖解耦后的校验分支。 */
 const DSH_VERSION = '9.9.9'
@@ -60,7 +61,7 @@ async function fixture(
     version,
     dshVersion: DSH_VERSION,
     environment,
-    publicUrl: `${origin}/dsh-desk/feeds/${target}/`,
+    publicUrl: `${origin}/dsh-desk/${environment === 'test' ? `${RELEASE_ID}/` : ''}feeds/${target}/`,
   })}\n`)
 
   if (os === 'mac') {
@@ -70,6 +71,7 @@ async function fixture(
     await writeFile(join(artifactsRoot, `${base}.dmg`), 'notarized DMG fixture')
     await writeFile(join(artifactsRoot, desktopUpdateMetadataFilename(version, 'darwin')), `${JSON.stringify({
       version,
+      path: `${base}.zip`,
       files: [{ url: `${base}.zip`, size: Buffer.byteLength(zip), sha512: digest(zip) }],
     })}\n`)
   }
@@ -81,6 +83,7 @@ async function fixture(
     expect(Object.hasOwn(info, 'blockMapSize')).toBe(false)
     await writeFile(join(artifactsRoot, desktopUpdateMetadataFilename(version, 'win32')), `${JSON.stringify({
       version,
+      path: `${base}.exe`,
       files: [{
         url: `${base}.exe`,
         ...info,
@@ -95,6 +98,7 @@ async function fixture(
       ? {
         DSH_DESKTOP_AUTO_UPDATE_ENV: 'test',
         DOWNLOAD_TEST_ORIGIN: TEST_ORIGIN,
+        DOWNLOAD_TEST_RELEASE_ID: RELEASE_ID,
         DOWNLOAD_TEST_COS_BUCKET: TEST_BUCKET,
       }
       : {
@@ -138,7 +142,7 @@ describe('desktop upload plan', () => {
     expect(plan).toMatchObject({
       environment: 'test',
       version: '1.2.3',
-      publicUrl: 'https://desktop-updates.example.com/dsh-desk/feeds/mac-arm64/',
+      publicUrl: `https://desktop-updates.example.com/dsh-desk/${RELEASE_ID}/feeds/mac-arm64/`,
       bucket: TEST_BUCKET,
     })
     expect(plan.artifacts.map(artifact => artifact.filename)).toEqual([
@@ -151,6 +155,34 @@ describe('desktop upload plan', () => {
     expect(plan.artifacts.at(-1)).toMatchObject({
       channelMetadata: true,
     })
+  })
+
+  it.each(['mac-arm64', 'mac-x64', 'win-x64'] as const)('publishes every %s object and YAML reference inside the test release directory', async (target) => {
+    const paths = await fixture(target)
+    const plan = await createDesktopUploadPlan(target, paths)
+    const prefix = `dsh-desk/${RELEASE_ID}`
+    const payload = plan.artifacts.find(artifact => artifact.filename.endsWith(target === 'win-x64' ? '.exe' : '.zip'))!
+    for (const artifact of plan.artifacts) {
+      expect(artifact.key).toBe(`${prefix}/${artifact.channelMetadata ? 'feeds' : 'bin'}/${target}/${artifact.filename}`)
+      if (artifact.channelMetadata) {
+        expect(load(artifact.contents!)).toMatchObject({
+          path: `${TEST_ORIGIN}/${payload.key}`,
+          files: [{ url: `${TEST_ORIGIN}/${payload.key}` }],
+        })
+      }
+    }
+    await expect(JSON.stringify(plan.artifacts.map(({ key, contents }) => ({ key, contents })), null, 2) + '\n')
+      .toMatchFileSnapshot(`./expected/test-release-upload-${target}.json`)
+  })
+
+  it('rejects a changed or missing release ID before uploading a completed package', async () => {
+    const paths = await fixture('mac-arm64')
+    await expect(createDesktopUploadPlan('mac-arm64', {
+      ...paths, environment: { ...paths.environment, DOWNLOAD_TEST_RELEASE_ID: 'a'.repeat(32) },
+    })).rejects.toThrow(/completion record/u)
+    await expect(createDesktopUploadPlan('mac-arm64', {
+      ...paths, environment: { ...paths.environment, DOWNLOAD_TEST_RELEASE_ID: undefined },
+    })).rejects.toThrow(/DOWNLOAD_TEST_RELEASE_ID/u)
   })
 
   it('uploads the prerelease channel metadata emitted by electron-builder', async () => {
@@ -203,6 +235,7 @@ describe('desktop upload plan', () => {
       environment: {
         DSH_DESKTOP_AUTO_UPDATE_ENV: 'test',
         DOWNLOAD_TEST_ORIGIN: TEST_ORIGIN,
+        DOWNLOAD_TEST_RELEASE_ID: RELEASE_ID,
         DOWNLOAD_TEST_COS_BUCKET: TEST_BUCKET,
       },
     })).rejects.toThrow(/completion record.*test/u)

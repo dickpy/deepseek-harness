@@ -2,50 +2,23 @@
 export const DESKTOP_AUTO_UPDATE_ENV: 'DSH_DESKTOP_AUTO_UPDATE_ENV'
 
 /** Supported Desktop update deployment. */
-export type DesktopAutoUpdateEnvironment = 'test' | 'production' | 'enterprise'
+export type DesktopAutoUpdateEnvironment = 'test' | 'production'
 
 /** Directory name of one supported Desktop release target. */
 export type DesktopAutoUpdateTarget = 'mac-arm64' | 'mac-x64' | 'win-x64'
 
-/** Update channel published beside one release target. */
-export type DesktopUpdateChannel = 'latest' | 'nightly'
-
-/** 发布产物的文件名前缀，与 electron-builder 的 `artifactName` 共用。 */
-export const DESKTOP_ARTIFACT_PREFIX: string
-
-/**
- * Return the electron-builder artifact base name for one release target.
- * @param version - Desktop semantic version.
- * @param os - Target operating system segment (`mac` or `win`).
- * @param arch - Target architecture segment.
- * @returns Artifact base name without its extension.
- */
-export function desktopArtifactBasename(version: string, os: string, arch: string): string
-
-/** Public updater URL for one release target. */
+/** Public updater URL and object prefixes for one release target. */
 export interface DesktopAutoUpdateConfig {
   readonly environment: DesktopAutoUpdateEnvironment
   readonly target: DesktopAutoUpdateTarget
-  readonly channel: DesktopUpdateChannel
   readonly origin: string
   readonly publicUrl: string
   readonly keyPrefix: string
+  readonly binaryKeyPrefix: string
 }
 
-/**
- * 走腾讯 COS 上传的部署。
- * `enterprise` 不在其中：企业更新源由 IT 手动上传到自有静态服务器，没有 bucket。
- */
-export type DesktopCosUploadEnvironment = 'test' | 'production'
-
 /** Public updater URL and private COS destination for one upload target. */
-export interface DesktopUploadConfig {
-  readonly environment: DesktopCosUploadEnvironment
-  readonly target: DesktopAutoUpdateTarget
-  readonly channel: DesktopUpdateChannel
-  readonly origin: string
-  readonly publicUrl: string
-  readonly keyPrefix: string
+export interface DesktopUploadConfig extends DesktopAutoUpdateConfig {
   readonly bucket: string
   readonly secretIdEnvName: string
   readonly secretKeyEnvName: string
@@ -82,22 +55,20 @@ export function desktopBuildRecordFilename(target: DesktopAutoUpdateTarget): str
  * Return the electron-builder channel metadata filename for an application version.
  * @param version - Desktop semantic version.
  * @param platform - Target platform.
- * @param channel - Update channel prefix; defaults to nightly.
  * @returns Channel metadata filename emitted for the target.
  */
 export function desktopUpdateMetadataFilename(
   version: string,
   platform: NodeJS.Platform,
-  channel?: DesktopUpdateChannel,
 ): string
 
 /**
- * Resolve the public updater URL for one release target.
+ * Resolve the public updater URL and object prefixes for one release target.
  * @param env - Packaging or upload environment.
  * @param platform - Target Node.js platform.
  * @param arch - Target Node.js architecture.
  * @returns Resolved updater configuration.
- * @throws When the test deployment lacks a valid HTTPS origin.
+ * @throws When the test deployment lacks a valid HTTPS origin or a 32-character lowercase hexadecimal release ID.
  */
 export function resolveDesktopAutoUpdateConfig(
   env: NodeJS.ProcessEnv,
@@ -111,7 +82,7 @@ export function resolveDesktopAutoUpdateConfig(
  * @param platform - Target Node.js platform.
  * @param arch - Target Node.js architecture.
  * @returns Resolved upload configuration.
- * @throws When the selected deployment lacks a required origin or bucket, or the test origin is not HTTPS.
+ * @throws When the selected deployment lacks a bucket or valid updater configuration.
  */
 export function resolveDesktopUploadConfig(
   env: NodeJS.ProcessEnv,

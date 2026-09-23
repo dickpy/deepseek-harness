@@ -13,10 +13,7 @@
     { "path": "../../packages/jobs/jobs" },
     { "path": "../../packages/skill/skill-office" },
     { "path": "../../packages/util/home-paths" },
-    {
-      "path": "../../packages/workspace/workspace"
-    },
-    { "path": "../../packages/core/tools" },
+    { "path": "../../packages/skill/tool-workspace-dependencies" },
     {
       "path": "../cli"
     },
@@ -28,6 +25,9 @@
     },
     {
       "path": "../../packages/host/webserver"
+    },
+    {
+      "path": "../../packages/credentials/deepseek-account"
     }
   ]
 }

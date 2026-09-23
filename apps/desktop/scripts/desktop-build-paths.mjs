@@ -4,21 +4,7 @@ import { join, resolve } from 'node:path'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const BUILD_ROOT = join(APP_ROOT, '.desktop-build')
-const DIST_ROOT = resolve(APP_ROOT, '..', '..', '..')
 const SUPPORTED_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64'])
-
-/**
- * Return the sibling distribution directory used for local release artifacts.
- * @param {string} version - Desktop product version.
- * @param {'mac-arm64' | 'mac-x64' | 'win-x64'} target - Supported Desktop target name.
- * @returns {string} Absolute sibling dist-<version>/<target> directory.
- */
-export function desktopDistributionDirectory(version, target) {
-  if (!SUPPORTED_TARGETS.has(target)) {
-    throw new Error(`desktop build paths: unsupported target ${String(target)}`)
-  }
-  return join(DIST_ROOT, `dist-${version}`, target)
-}
 
 /**
  * Resolve the fixed build target selected by a packaging environment.
@@ -46,7 +32,7 @@ export function resolveDesktopBuildTarget(
 /**
  * Return the mutable preparation and artifact directories owned by one release target.
  * @param {'mac-arm64' | 'mac-x64' | 'win-x64'} target - Supported Desktop target name.
- * @returns {{ root: string, artifacts: string, runtime: string, packageSet: string, dsh: string, dshPnpm: string, dshPnpmStore: string, dshRuntimeBuild: string, electron: string, packedDsh: string, packedVendor: string, packedLandlock: string, downloads: string }} Target paths plus the shared immutable download cache.
+ * @returns {{ root: string, artifacts: string, unsignedArtifacts: string, runtime: string, packageSet: string, dsh: string, dshPnpm: string, electron: string, packedDsh: string, packedVendor: string, packedLandlock: string, downloads: string }} Target paths plus the shared immutable download cache.
  */
 export function desktopTargetBuildPaths(target) {
   if (!SUPPORTED_TARGETS.has(target)) {
@@ -57,12 +43,11 @@ export function desktopTargetBuildPaths(target) {
   return {
     root,
     artifacts: join(root, 'artifacts'),
+    unsignedArtifacts: join(root, 'unsigned-artifacts'),
     runtime: join(root, 'runtime'),
     packageSet: join(root, 'package-set'),
     dsh: join(root, 'dsh'),
     dshPnpm: join(root, 'dsh-pnpm'),
-    dshPnpmStore: join(BUILD_ROOT, 'pnpm-store'),
-    dshRuntimeBuild: join(root, 'runtime-build'),
     electron: join(root, 'electron'),
     packedDsh: join(packed, 'dsh'),
     packedVendor: join(packed, 'vendor'),
