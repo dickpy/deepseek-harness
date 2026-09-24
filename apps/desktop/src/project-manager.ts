@@ -23,7 +23,7 @@ import type { DesktopPaths } from './paths.ts'
 import type { DesktopRelease } from './release.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
 import {
-  initProfile, PROFILE_TEMPLATES, removeLinkProjections, sanitizeProfile, type ProfileTemplate,
+  initProfile, OPTIONAL_BUNDLES, PROFILE_TEMPLATES, removeLinkProjections, sanitizeProfile, type ProfileTemplate,
 } from '@deepseek-ai/dsh-app-boot'
 
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
@@ -44,7 +44,7 @@ const WEB_PROFILE = PROFILE_TEMPLATES.web as ProfileTemplate
  * manifest free of them.
  */
 export const DESKTOP_BUNDLED_PLUGINS: Readonly<Record<string, string>> = {
-  'dsh-context': '0.52.2',
+  'dsh-context': '0.55.0',
 }
 /**
  * fork: The bundle list every Desktop build mounts ahead of the profile's own
@@ -56,6 +56,11 @@ export const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-plugin-enterprise',
   ...Object.keys(DESKTOP_BUNDLED_PLUGINS),
 ] as const
+
+/** Official bundles shipped switched off; direct dependencies keep them visible to the plugin manager. */
+export function desktopOptionalBundleDependencies(version: string): Readonly<Record<string, string>> {
+  return Object.fromEntries(OPTIONAL_BUNDLES.map(name => [name, version]))
+}
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\n'
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`, { mode: 0o600 })
@@ -164,7 +169,11 @@ export function createRuntimeProjectMetadata(projectDir: string, release: Deskto
     name: PROJECT_NAME,
     private: true,
     version: '0.0.0',
-    dependencies: { ...desktopCorePackageOverrides(packageSet), ...DESKTOP_BUNDLED_PLUGINS },
+    dependencies: {
+      ...desktopCorePackageOverrides(packageSet),
+      ...DESKTOP_BUNDLED_PLUGINS,
+      ...desktopOptionalBundleDependencies(release.version),
+    },
     dsh: { profile: { bundles: [...DESKTOP_PROFILE_BUNDLES] } },
   }
   writeJson(join(projectDir, 'package.json'), manifest)
@@ -190,6 +199,7 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
       [DSH_PACKAGE]: release.version,
       [DESKTOP_HOST_PACKAGE]: release.version,
       ...DESKTOP_BUNDLED_PLUGINS,
+      ...desktopOptionalBundleDependencies(release.version),
     },
     dsh: { profile: { bundles: [...DESKTOP_PROFILE_BUNDLES] } },
   }

@@ -346,6 +346,8 @@ async function main(): Promise<void> {
     app.relaunch()
     app.quit()
   })
+  let resolveWorkspaceReady: (() => void) | undefined
+  const workspaceReady = new Promise<void>((resolveReady) => { resolveWorkspaceReady = resolveReady })
   const enterpriseGateEnabled = gateEnabled(process.env, app.isPackaged)
   let enterpriseSession = false
   if (enterpriseGateEnabled) {
@@ -355,6 +357,7 @@ async function main(): Promise<void> {
       createWindow: () => createLoginWindow(appPreload, messages.enterpriseLoginWindowTitle),
       windowTitle: messages.enterpriseLoginWindowTitle,
       appName: messages.loginBrandName,
+      keepOpenUntil: workspaceReady,
     })
     if (gate.kind === 'cancelled') return
     enterpriseSession = gate.kind === 'session'
@@ -761,6 +764,13 @@ async function main(): Promise<void> {
     }
     let failedOperation: 'check' | 'download' | 'install' = 'check'
     promptOperation ??= Promise.resolve().then(async () => {
+      if (!updates.hasSource) {
+        await ordinaryMessageBox({
+          type: 'info', title: locale.messages.updateCheckTitle, message: locale.messages.updateUnavailable,
+          buttons: [locale.messages.updateAcknowledge], cancelId: 0,
+        })
+        return
+      }
       if (manual) updateJournal?.action('check-requested')
       const joinedPolicyAuthentication = authenticationOperation !== undefined
       if (joinedPolicyAuthentication) await authenticatePolicy()
@@ -872,7 +882,7 @@ async function main(): Promise<void> {
 
   const automaticCheck = (): void => {
     if (!quitting) void mandatoryPolicy?.check('foreground-or-resume').catch((error: unknown) => { console.error(error) })
-    if (!quitting) void updateSchedule.check().catch((error: unknown) => { console.error(error) })
+    if (!quitting && updates.hasSource) void updateSchedule.check().catch((error: unknown) => { console.error(error) })
   }
   powerMonitor.on('resume', automaticCheck)
   app.on('will-quit', () => {
@@ -1019,6 +1029,8 @@ async function main(): Promise<void> {
     if (isQuitting() || recovery.active || window.isDestroyed()) return
     window.show()
     enteredWorkspace = true
+    resolveWorkspaceReady?.()
+    resolveWorkspaceReady = undefined
     if (welcomeWindow !== undefined) {
       welcomeWindow.close()
       window.webContents.send(DESKTOP_IPC.enterWorkspace)

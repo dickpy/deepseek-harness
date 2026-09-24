@@ -4,7 +4,11 @@ import { spawn, execFile } from 'node:child_process'
 import { copyFileSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join, relative, resolve } from 'node:path'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
-import { createRuntimeProjectMetadata, DESKTOP_BUNDLED_PLUGINS } from '../src/project-manager.ts'
+import {
+  createRuntimeProjectMetadata,
+  DESKTOP_BUNDLED_PLUGINS,
+  desktopOptionalBundleDependencies,
+} from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { parseDesktopRelease, type DesktopRelease } from '../src/release.ts'
 import {
@@ -217,6 +221,7 @@ async function main(): Promise<void> {
       dependencies: Object.fromEntries([
         ...packageSet.packages.map(entry => [entry.name, entry.version]),
         ...Object.entries(DESKTOP_BUNDLED_PLUGINS),
+        ...Object.entries(desktopOptionalBundleDependencies(release.version)),
       ]),
     }, undefined, 2)}\n`)
     for (const file of DESKTOP_HOST_RUNTIME_FILES) {

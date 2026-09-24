@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, act } from '@testing-library/react'
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
-import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
+import { setEnterpriseHidden, type GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AccountDetails, AccountView, SignInAttemptId } from '@deepseek-ai/dsh-deepseek-account/types'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { PlatformBridge } from '../src/client/PlatformOverlay.tsx'
@@ -9,7 +9,7 @@ import { AccountSection, type AccountSectionInjected, type AccountSnapshot } fro
 import type {} from '../src/client/index.ts'
 import { en, zh, type AccountKey } from '../src/client/locales.ts'
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); setEnterpriseHidden([]) })
 
 /** One resolved theme snapshot per scheme; the slot's theme hook serves these in the application. */
 const themeOf = (colorScheme: 'light' | 'dark'): ThemeSnapshot => ({
@@ -88,6 +88,22 @@ it.each([en, zh])('opens settings and signs out from the sidebar account menu', 
   await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: copy.signOut })) })
   expect(signOut).toHaveBeenCalledOnce()
   expect(screen.queryByRole('menu')).toBeNull()
+})
+
+it('hides the account launcher when enterprise ownership becomes visible after mount', async () => {
+  const operations = mount({ status: 'signed-out', attempt: null })
+  cleanup()
+  const { AccountMenu } = await import('../src/client/AccountMenu.tsx')
+  const props = { ...({} as GlobalStandardProps), ...operations, wide: true, openOnboarding: () => {}, openSettings: () => {},
+    useAccount: <T,>(selector: (value: AccountSnapshot) => T) => selector(operations.hooks.account.getSnapshot()),
+    useTheme: <T,>(selector: (value: ThemeSnapshot) => T) => selector(operations.hooks.theme.getSnapshot()),
+    t: (key: string) => en[key as AccountKey] }
+  render(<AccountMenu {...props} />)
+  expect(screen.getByRole('button', { name: en.menu })).toBeTruthy()
+  act(() => { setEnterpriseHidden(['settings.launcher']) })
+  expect(screen.queryByRole('button', { name: en.menu })).toBeNull()
+  act(() => { setEnterpriseHidden([]) })
+  expect(screen.getByRole('button', { name: en.menu })).toBeTruthy()
 })
 
 it('reports a failed start in the login dialog, not as a sidebar alert', async () => {

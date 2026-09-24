@@ -108,14 +108,16 @@ export function apply(ctx: ClientContext): void {
 
   const applyMenuFilter = (): void => {
     const snapshot = store.store.getSnapshot()
-    if (snapshot.status !== 'ready' || snapshot.menus.length === 0) {
+    if (snapshot.status !== 'ready') {
       setEnterpriseHidden([])
       return
     }
     const allowed = new Set(snapshot.menus.map(key => MENU_TO_SURFACE[key] ?? key))
-    setEnterpriseHidden(
-      KNOWN_SURFACES.map(key => MENU_TO_SURFACE[key] ?? key).filter(id => !allowed.has(id)),
-    )
+    const hidden = KNOWN_SURFACES.map(key => MENU_TO_SURFACE[key] ?? key).filter(id => !allowed.has(id))
+    // Enterprise identity owns the sidebar account surface; the official
+    // DeepSeek account launcher must not appear beside it.
+    hidden.push('settings.launcher')
+    setEnterpriseHidden(hidden)
   }
   ctx.effect(() => {
     void store.load()

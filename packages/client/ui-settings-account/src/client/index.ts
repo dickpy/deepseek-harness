@@ -26,7 +26,6 @@ export const inject = ['slots', 'locale', 'remote', 'remote.account', 'theme']
 /** Register account UI only in the Desktop renderer. @param ctx - client plugin context. */
 export function apply(ctx: Context): void {
   if (!('dshDesktop' in globalThis)) return
-  const enterpriseManaged = process.env.DSH_ENTERPRISE_SESSION === '1'
   ctx.effect(() => ctx.locale.register('settings.account', { en, zh }), 'account: dictionaries')
   const t = ctx.locale.bind('settings.account')
   const page = globalThis as Partial<Record<typeof CONTACT_CONFIG_GLOBAL, unknown>>
@@ -120,29 +119,27 @@ export function apply(ctx: Context): void {
     async cancel(id) { const result = await ctx.remote.account.cancelSignIn(id); if (!result.ok) throw new Error('account cancel failed') },
     async signOut() { const result = await ctx.remote.account.signOut(); if (!result.ok) throw new Error('account sign-out failed') },
   }
-  if (!enterpriseManaged) {
-    ctx.slots.inject('settings.models.sign-in', () => ctx.slots.register({
-      name: 'settings.models.sign-in', locale: 'settings.account', inject: () => operations,
-    }, AccountOnboarding))
-    ctx.slots.inject('settings.launcher', () => ctx.slots.register({
-      name: 'settings.launcher', locale: 'settings.account', inject: () => operations,
-    }, AccountMenu))
-    ctx.slots.inject('settings.section', () => {
-      let unregister: (() => void) | undefined
-      const update = () => {
-        if (snapshot.view?.status === 'credential-stored') {
-          unregister ??= ctx.slots.register({
-            name: 'settings.section', id: 'account', order: -10, label: () => t('nav'),
-            locale: 'settings.account', inject: () => operations,
-          }, AccountSection)
-        } else {
-          unregister?.()
-          unregister = undefined
-        }
+  ctx.slots.inject('settings.models.sign-in', () => ctx.slots.register({
+    name: 'settings.models.sign-in', locale: 'settings.account', inject: () => operations,
+  }, AccountOnboarding))
+  ctx.slots.inject('settings.launcher', () => ctx.slots.register({
+    name: 'settings.launcher', locale: 'settings.account', inject: () => operations,
+  }, AccountMenu))
+  ctx.slots.inject('settings.section', () => {
+    let unregister: (() => void) | undefined
+    const update = () => {
+      if (snapshot.view?.status === 'credential-stored') {
+        unregister ??= ctx.slots.register({
+          name: 'settings.section', id: 'account', order: -10, label: () => t('nav'),
+          locale: 'settings.account', inject: () => operations,
+        }, AccountSection)
+      } else {
+        unregister?.()
+        unregister = undefined
       }
-      listeners.add(update)
-      update()
-      return () => { listeners.delete(update); unregister?.() }
-    })
-  }
+    }
+    listeners.add(update)
+    update()
+    return () => { listeners.delete(update); unregister?.() }
+  })
 }

@@ -1,7 +1,11 @@
 /** Sidebar account launcher and locally authoritative sign-out action. */
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { Menu, IconPaperPlaneOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import {
+  isEnterpriseHidden,
+  subscribeEnterpriseHidden,
+} from '@deepseek-ai/dsh-client-ui-slots'
 import type { AccountSectionInjected } from './AccountSection.tsx'
 import { SignInDialog } from './SignInDialog.tsx'
 import { LogoutIcon } from './LogoutIcon.tsx'
@@ -18,6 +22,11 @@ export type AccountMenuProps = PropsRuntime<'settings.launcher'> & PropsLocale<'
 export function AccountMenu({
   wide, openSettings, openOnboarding, useAccount, useTheme, signOut, contactUs, showLogin, start, cancel, t,
 }: AccountMenuProps) {
+  const enterpriseHidden = useSyncExternalStore(
+    subscribeEnterpriseHidden,
+    () => isEnterpriseHidden('settings.launcher'),
+    () => false,
+  )
   const account = useAccount(state => state)
   const colorScheme = useTheme(snapshot => snapshot.active.colorScheme)
   const signedIn = account.view?.status === 'credential-stored'
@@ -27,6 +36,7 @@ export function AccountMenu({
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [logoutFailed, setLogoutFailed] = useState(false)
+  if (enterpriseHidden) return null
   const logout = async () => {
     setBusy(true)
     setLogoutFailed(false)

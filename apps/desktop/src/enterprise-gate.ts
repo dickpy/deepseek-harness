@@ -266,6 +266,8 @@ export interface GateDeps {
   /** 创建壳自有窗口（含 preload），供登录窗使用 */
   readonly createWindow: () => BrowserWindow
   readonly windowTitle: string
+  /** Keep the successful login window visible until the workspace is ready. */
+  readonly keepOpenUntil?: Promise<void>
   /** 登录卡展示的品牌名；asar 内 package.json 无 productName，app.getName() 会读到 scoped 包名 */
   readonly appName: string
 }
@@ -292,7 +294,16 @@ function showLoginWindowUntilSuccess(
       const session = pending
       pending = null
       resolve(session)
-      if (!win.isDestroyed()) win.close()
+      const wait = deps.keepOpenUntil ?? Promise.resolve()
+      void Promise.race([
+        wait,
+        new Promise<void>(resolveWait => {
+          const timer = setTimeout(resolveWait, 30_000)
+          timer.unref()
+        }),
+      ]).then(() => {
+        if (!win.isDestroyed()) win.close()
+      })
     }
     ipcMain.handle(contextChannel, (event: IpcMainInvokeEvent): LoginContext => {
       assertLoginSender(event)
