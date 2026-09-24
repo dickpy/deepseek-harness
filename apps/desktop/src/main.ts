@@ -346,7 +346,9 @@ async function main(): Promise<void> {
     app.relaunch()
     app.quit()
   })
-  if (gateEnabled(process.env, app.isPackaged)) {
+  const enterpriseGateEnabled = gateEnabled(process.env, app.isPackaged)
+  let enterpriseSession = false
+  if (enterpriseGateEnabled) {
     const gate = await ensureEnterpriseGate({
       app, env: process.env, isPackaged: app.isPackaged,
       warn: (message) => { console.warn('[dsh-enterprise-gate]', message) },
@@ -355,6 +357,8 @@ async function main(): Promise<void> {
       appName: messages.loginBrandName,
     })
     if (gate.kind === 'cancelled') return
+    enterpriseSession = gate.kind === 'session'
+    if (enterpriseSession) process.env.DSH_ENTERPRISE_SESSION = '1'
   }
 
   const paths = resolveDesktopPaths()
@@ -469,7 +473,7 @@ async function main(): Promise<void> {
           if (attempt?.phase === 'succeeded' && welcomeWindow !== undefined) void enterWorkspace().catch(() => undefined)
           if (previousAccountStatus === 'credential-stored' && state.status === 'signed-out') {
             void readWelcomeState().then((value) => {
-              if (!value.hasApiKey && !quitting) { enteredWorkspace = false; return showWelcome() }
+              if (!enterpriseSession && !value.hasApiKey && !quitting) { enteredWorkspace = false; return showWelcome() }
               return undefined
             }).catch(() => undefined)
           }
@@ -1026,6 +1030,7 @@ async function main(): Promise<void> {
   }
   let openingWelcome: Promise<void> | undefined
   const showWelcome = (): Promise<void> => {
+    if (enterpriseSession) return enterWorkspace()
     if (quitting) return Promise.resolve()
     if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) {
       welcomeWindow.show()
@@ -1081,7 +1086,9 @@ async function main(): Promise<void> {
     locale = resolveDesktopStartupLocale(state.localePreference, systemLanguages)
     windowsLanguage = locale.id
     installMenu()
-    if (!enteredWorkspace && needsWelcome({ loggedIn: state.loggedIn, hasApiKey: state.hasApiKey })) {
+    if (enterpriseSession) {
+      await enterWorkspace()
+    } else if (!enteredWorkspace && needsWelcome({ loggedIn: state.loggedIn, hasApiKey: state.hasApiKey })) {
       await showWelcome()
     } else {
       await enterWorkspace()
