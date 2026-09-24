@@ -112,6 +112,12 @@ export function apply(ctx: ClientContext): void {
       setEnterpriseHidden([])
       return
     }
+    // An empty menu list is the upstream default: every known surface stays
+    // visible. Only the official account launcher remains enterprise-owned.
+    if (snapshot.menus.length === 0) {
+      setEnterpriseHidden(['settings.launcher'])
+      return
+    }
     const allowed = new Set(snapshot.menus.map(key => MENU_TO_SURFACE[key] ?? key))
     const hidden = KNOWN_SURFACES.map(key => MENU_TO_SURFACE[key] ?? key).filter(id => !allowed.has(id))
     // Enterprise identity owns the sidebar account surface; the official
