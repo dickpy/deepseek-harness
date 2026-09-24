@@ -54,6 +54,7 @@ export const DESKTOP_BUNDLED_PLUGINS: Readonly<Record<string, string>> = {
 export const DESKTOP_PROFILE_BUNDLES = [
   ...WEB_PROFILE.bundles,
   '@deepseek-ai/dsh-plugin-enterprise',
+  '@deepseek-ai/dsh-plugin-enterprise-computer-use',
   ...Object.keys(DESKTOP_BUNDLED_PLUGINS),
 ] as const
 
@@ -207,7 +208,28 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
   writeFileSync(join(projectDir, 'pnpm-workspace.yaml'), workspaceFile(), { mode: 0o600 })
 }
 
-/** Create the first external plugin profile without running a package manager. */
+/** Add newly shipped system bundles without changing user-installed bundle order. */
+function ensureDesktopProfileBundles(projectDir: string): void {
+  const manifestPath = join(projectDir, 'package.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    dsh?: { profile?: { bundles?: string[] } }
+  }
+  const bundles = manifest.dsh?.profile?.bundles
+  if (!Array.isArray(bundles)) return
+  const original = [...bundles]
+  for (const [index, name] of DESKTOP_PROFILE_BUNDLES.entries()) {
+    if (bundles.includes(name)) continue
+    const following = DESKTOP_PROFILE_BUNDLES.slice(index + 1).find(candidate => bundles.includes(candidate))
+    const position = following === undefined ? bundles.length : bundles.indexOf(following)
+    bundles.splice(position, 0, name)
+  }
+  if (bundles.length !== original.length || bundles.some((name, index) => name !== original[index])) {
+    writeJson(manifestPath, manifest)
+  }
+}
+
+/** Initialize the desktop profile and backfill system bundles added by upgrades. */
 export function createPluginProfile(projectDir: string): void {
   initProfile(projectDir, DESKTOP_PROFILE_BUNDLES)
+  ensureDesktopProfileBundles(projectDir)
 }

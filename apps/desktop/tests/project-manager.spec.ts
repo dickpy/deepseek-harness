@@ -43,6 +43,28 @@ afterEach(() => {
 })
 
 describe('desktop external plugin profile', () => {
+  it('backfills new system bundles without disturbing user bundle order', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    const system = '@deepseek-ai/dsh-plugin-enterprise-computer-use'
+    manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(name => name !== system)
+    manifest.dsh.profile.bundles.push('user-bundle')
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+
+    await manager.applyRelease()
+
+    const upgraded = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    expect(upgraded.dsh.profile.bundles.filter(name => name === system)).toHaveLength(1)
+    expect(upgraded.dsh.profile.bundles.indexOf(system)).toBeLessThan(upgraded.dsh.profile.bundles.indexOf('dsh-context'))
+    expect(upgraded.dsh.profile.bundles.at(-1)).toBe('user-bundle')
+  })
+
   it('preserves installed packages, profile state, and the lockfile when preparing a launch', async () => {
     const { manager } = setup()
     await manager.applyRelease()

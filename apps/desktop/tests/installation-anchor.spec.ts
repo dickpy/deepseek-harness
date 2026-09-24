@@ -49,15 +49,20 @@ function stageInstallation(): Installation {
   stage('@deepseek-ai/dsh-desktop-host', {
     '@deepseek-ai/dsh-client-ui-enterprise': '0.0.0',
     '@deepseek-ai/dsh-plugin-enterprise': '0.0.0',
+    '@deepseek-ai/dsh-plugin-enterprise-computer-use': '0.0.0',
   })
   stage('@deepseek-ai/dsh-base')
   stage('@deepseek-ai/dsh-web-app', { '@deepseek-ai/dsh-client-ui-enterprise': '0.0.0' })
   stage('@deepseek-ai/dsh-client-ui-enterprise')
   stage('@deepseek-ai/dsh-plugin-enterprise')
+  stage('@deepseek-ai/dsh-plugin-enterprise-computer-use')
   stage('dsh-context')
   writeFileSync(join(runtimeDir, 'package.json'), JSON.stringify({
     name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: '0.0.0',
-    dependencies: { '@deepseek-ai/dsh': '0.0.0', '@deepseek-ai/dsh-desktop-host': '0.0.0', 'dsh-context': '0.0.0' },
+    dependencies: {
+      '@deepseek-ai/dsh': '0.0.0', '@deepseek-ai/dsh-desktop-host': '0.0.0',
+      '@deepseek-ai/dsh-plugin-enterprise-computer-use': '0.0.0', 'dsh-context': '0.0.0',
+    },
   }))
   return { runtimeDir, dirs }
 }

@@ -696,6 +696,9 @@ importers:
       '@deepseek-ai/dsh-plugin-enterprise':
         specifier: workspace:*
         version: link:../../packages/enterprise/plugin-enterprise
+      '@deepseek-ai/dsh-plugin-enterprise-computer-use':
+        specifier: workspace:*
+        version: link:../../packages/enterprise/computer-use-profile
       '@deepseek-ai/dsh-skill-office':
         specifier: workspace:*
         version: link:../../packages/skill/skill-office
@@ -6837,6 +6840,19 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session
+
+  packages/enterprise/computer-use-profile:
+    dependencies:
+      '@deepseek-ai/dsh-computer-use':
+        specifier: workspace:*
+        version: link:../../computer-use/computer-use
+      '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native':
+        specifier: workspace:*
+        version: link:../../experimental/computer-use-cua-driver-native
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
 
   packages/enterprise/plugin-enterprise:
     dependencies:

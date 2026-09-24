@@ -419,6 +419,7 @@
     { "path": "./packages/workflow/workflow" },
     { "path": "./packages/workflow/workflow-ptc" },
     { "path": "./packages/enterprise/plugin-enterprise" },
+    { "path": "./packages/enterprise/computer-use-profile" },
     { "path": "./packages/workflow/tool-workflow" },
     { "path": "./packages/workflow/tool-ralph" },
     { "path": "./packages/webhook/webhook" },
