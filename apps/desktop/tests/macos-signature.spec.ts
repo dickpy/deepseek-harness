@@ -41,12 +41,14 @@ describe('desktop macOS release signature', () => {
   it('loads release identifiers from the environment and requires code signing', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
     const config = createElectronBuilderConfig(RELEASE_ENVIRONMENT, 'darwin', 'arm64')
-    expect(config.protocols).toEqual([{ name: 'DeepSeek Harness', schemes: ['dsh'] }])
+    expect(config.protocols).toEqual([{ name: '维小智', schemes: ['dsh'] }])
     expect(portablePath(config.directories.output)).toContain('/.desktop-build/targets/mac-arm64/artifacts')
     expect(config.mac.extendInfo.NSMicrophoneUsageDescription).toContain('microphone')
-    expect(config.extraResources).toHaveLength(2)
+    expect(config.extraResources).toHaveLength(3)
     expect(config.extraResources[0]?.to).toBe('runtime')
     expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
+    expect(config.extraResources[1]?.to).toBe('enterprise.json')
+    expect(config.extraResources[2]?.to).toBe('icon.png')
     const [dshFiles, dshNodeModules] = config.files.slice(-2)
     if (!dshFiles || !dshNodeModules || typeof dshFiles === 'string' || typeof dshNodeModules === 'string') {
       throw new Error('desktop DSH resources must use electron-builder file mappings')
@@ -113,9 +115,11 @@ describe('desktop macOS release signature', () => {
       DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: JSON.stringify({ allowedAuthOrigins: ['https://login.example.com'] }),
       DSH_DESKTOP_TARGET_PLATFORM: 'win32',
       DSH_DESKTOP_UNSIGNED: '1',
+      DSH_DESKTOP_UNSIGNED_OUT_DIR: '/tmp/unsigned-artifacts',
     }, 'win32', 'x64')
-    expect(portablePath(config.directories.output)).toContain('/targets/win-x64/unsigned-artifacts')
-    expect(portablePath(config.nsis.include)).toMatch(/\/scripts\/installer\.nsh$/u)
+    expect(portablePath(config.directories.output)).toBe('/tmp/unsigned-artifacts')
+    expect(config.nsis.include).toBeUndefined()
+    expect(portablePath(config.nsis.installerSidebar)).toMatch(/\/installer\/assets\/sidebar\.bmp$/u)
     expect(config).toMatchObject({
       win: { forceCodeSigning: false, signtoolOptions: { sign: undefined } },
       publish: null,

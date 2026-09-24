@@ -62,7 +62,7 @@ export function skillUploadFromZip(data: Uint8Array): Promise<UserSkillUpload> {
         }
         resolve(skillUploadFromFiles(files))
       } catch (cause) {
-        reject(cause)
+        reject(cause instanceof Error ? cause : new Error(String(cause)))
       }
     })
   })

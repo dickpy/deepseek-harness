@@ -5,6 +5,9 @@ import type { DesktopBrowserBridge } from '@deepseek-ai/dsh-client-ui-sidebar-br
 
 /** IPC channel names kept private to the desktop application bundle. */
 export const DESKTOP_IPC = {
+  // fork: 登录页（dsh-app://shell）与应用文档（dsh-app://app）都要读产品版本与词条。
+  localeGet: 'dsh-desktop:locale-get',
+  versionGet: 'dsh-desktop:version-get',
   boot: 'dsh-desktop:boot',
   enterWorkspace: 'dsh-desktop:enter-workspace',
   bootFailed: 'dsh-desktop:boot-failed',
@@ -62,10 +65,29 @@ export interface DesktopUpdatePresentation {
 export interface DshDesktopProductApi {
   readonly protocolVersion: 1
   readonly browser: DesktopBrowserBridge
+  /** Running desktop product version, not the bundled dsh runtime version. */
+  appVersion(): Promise<string>
+  /** fork: clear the local enterprise session and restart into the login flow. */
+  enterpriseLogout(mode: 'logout' | 'switch'): Promise<void>
   readonly updates: {
     status(): Promise<DesktopUpdatePresentation>
     open(): Promise<void>
     subscribe(listener: (state: DesktopUpdatePresentation) => void): () => void
+  }
+}
+
+/**
+ * fork: 登录文档（`dsh-app://shell/login.html`）可用的最小桥面。
+ * 企业凭据只经 IPC 交给主进程，页面自身不发起网络请求。
+ */
+export interface DshDesktopLoginApi {
+  readonly protocolVersion: 1
+  appVersion(): Promise<string>
+  locale(): Promise<{ readonly id: string; readonly messages: Readonly<Record<string, string>> }>
+  readonly enterprise: {
+    context(): Promise<unknown>
+    submit(payload: { serverUrl: string; email: string; password: string }): Promise<{ ok: boolean; message?: string }>
+    complete(): Promise<void>
   }
 }
 

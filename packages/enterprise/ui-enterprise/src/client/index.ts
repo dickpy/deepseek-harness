@@ -12,6 +12,9 @@
  *  4. 菜单显隐：按同命名空间的 `menus` 过滤设置壳导航
  *     （ui-settings-general 的 fork 过滤器 setEnterpriseHiddenSections）。
  */
+// Type-only: slot declarations from the conversation owner.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -21,14 +24,14 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the sidebar's slot declarations (sidebar.footer.action, sidebar.skills).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { setEnterpriseHidden } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconLinkOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconLinkOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { HomeCatalog, HomeSkillChips } from './HomeCatalog.tsx'
 import { HomeGallery, type HomeGalleryInjected } from './HomeGallery.tsx'
 import { SidebarUserCard } from './SidebarUserCard.tsx'
 import { SkillsPlaza, type SkillsPlazaInjected } from './SkillsPlaza.tsx'
 import { SkillsSidebarEntry, type SkillsSidebarInjected } from './SkillsSidebarEntry.tsx'
 import { composeDraft } from './compose-draft.ts'
-import { EnterpriseSessionStore, decodeEnterpriseSection } from './enterprise-store.ts'
+import { EnterpriseSessionStore, type EnterpriseSection } from './enterprise-store.ts'
 import { NS, en, zh, type EnterpriseLocaleKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -56,7 +59,7 @@ const SKILLS_PANEL = 'skills'
 export const inject = [
   'slots',
   'locale',
-  'settingsScope',
+  'configForms',
   'remote',
   'remote.settings',
   'layout',
@@ -99,7 +102,7 @@ const MENU_TO_SURFACE: Record<string, string> = { 'settings.agents': 'settings.a
  * @param ctx - 客户端根上下文。
  */
 export function apply(ctx: ClientContext): void {
-  const scope = ctx.settingsScope.bind({ namespace: 'dsh-enterprise', decode: decodeEnterpriseSection })
+  const scope = ctx.configForms.get<EnterpriseSection>('dsh-enterprise')
   const store = new EnterpriseSessionStore(scope)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-enterprise: dictionaries')
 
@@ -147,7 +150,7 @@ export function apply(ctx: ClientContext): void {
       registerPanel(panel: {
         id: string
         label(): string
-        icon: typeof IconLinkOutline16
+        icon: typeof IconLinkOutlineRegular
         order?: number
         load(session: { sessionId: string }, signal: AbortSignal): Promise<{
           searchPlaceholder: string
@@ -156,7 +159,7 @@ export function apply(ctx: ClientContext): void {
             id: string
             label: string
             description?: string
-            icon?: typeof IconLinkOutline16
+            icon?: typeof IconLinkOutlineRegular
             active?: boolean
             closeOnSelect?: boolean
             onSelect(context: { session: { sessionId: string } }): void | Promise<void>
@@ -167,23 +170,23 @@ export function apply(ctx: ClientContext): void {
     scope.effect(() => composerMenu.registerPanel({
       id: 'connectors',
       label: () => t('skills.tab.connectors'),
-      icon: IconLinkOutline16,
+      icon: IconLinkOutlineRegular,
       order: 30,
-      async load(_session, signal) {
+      load(_session, signal) {
         signal.throwIfAborted()
-        return {
+        return Promise.resolve({
           searchPlaceholder: t('skills.connector.search.placeholder'),
           emptyText: t('skills.connector.empty.title'),
           rows: store.store.getSnapshot().connectors.map(connector => ({
             id: connector.name,
             label: connector.name,
             description: connector.description === '' ? t('skills.connector.description.none') : connector.description,
-            icon: IconLinkOutline16,
+            icon: IconLinkOutlineRegular,
             active: connector.enabled,
             closeOnSelect: false,
             onSelect: () => store.setConnectorEnabled(connector.name, !connector.enabled),
           })),
-        }
+        })
       },
     }), 'ui-enterprise: composer connectors panel')
   })

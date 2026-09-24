@@ -8,7 +8,8 @@ import {
   desktopBuildRecordFilename,
   resolveDesktopAutoUpdateConfig,
 } from './desktop-auto-update-environment.mjs'
-import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { desktopDistributionDirectory, desktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { parseEnterpriseManifest, resolveEnterpriseChannel } from '../src/enterprise-environments.ts'
 import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
 import { loadDesktopPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
@@ -24,6 +25,7 @@ import { suggestDesktopBuildVersion } from './desktop-build-version-discovery.ts
 import { desktopBuildCommitEnvironment, readDesktopBuildCommit, resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { requireDesktopToolchain } from './desktop-toolchain-preflight.ts'
 import { withMacOSNotarizationProxy } from './macos-notarization-proxy.ts'
+import { writeLocalDistributionMetadata } from './local-distribution.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
@@ -140,10 +142,8 @@ function writeReleaseRecord(
 ): void {
   const desktopVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
   const dshVersion = packageVersion(join(REPOSITORY_ROOT, 'package.json'), 'dsh package')
-  if (desktopVersion !== dshVersion) {
-    throw new Error(`desktop package: desktop version ${desktopVersion} does not match dsh version ${dshVersion}`)
-  }
-  const buildVersion = resolveDesktopBuildVersion(environment, dshVersion)
+  // fork: 产品版本与 dsh 运行时版本解耦；记录同时保留二者。
+  const buildVersion = resolveDesktopBuildVersion(environment, desktopVersion)
   const packaged = resolveDesktopBuildCommit(environment)
   const update = resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
   const recordPath = join(artifactsRoot, desktopBuildRecordFilename(target.name))
@@ -152,6 +152,7 @@ function writeReleaseRecord(
     schemaVersion: 1,
     target: target.name,
     version: buildVersion,
+    dshVersion,
     environment: update.environment,
     publicUrl: update.publicUrl,
     // Upload reads this to tag the commit a production release was packaged from.
@@ -390,6 +391,25 @@ async function main(): Promise<void> {
  * @param run Persistent stage supervisor; required for signed Windows packaging and enabled for all release commands.
  * @returns Resolves after preparation or complete packaging; any failed stage prevents a release record.
  */
+/**
+ * 把构建期选定的通道写进随包发布的 enterprise.json。
+ * @param root - 目标构建目录（清单与其它产物同级）。
+ * @param environment - DSH_ENTERPRISE_ENVIRONMENT 的取值；缺省时不再写文件。
+ * @returns 烘焙后的清单路径。
+ */
+export function bakeEnterpriseManifest(root: string, environment?: string): string {
+  const manifest = parseEnterpriseManifest(readFileSync(join(APP_ROOT, 'enterprise.json'), 'utf8'))
+  const channel = resolveEnterpriseChannel(manifest, environment)
+  const target = join(root, 'enterprise.json')
+  if (environment === undefined || environment === '') return target
+  writeFileSync(target, `${JSON.stringify({
+    '//': '由 apps/desktop/enterprise.json 于打包期生成；default 是普通用户锁定的通道，其余通道仅内部模式可见。',
+    default: channel.locked.key,
+    environments: manifest.environments,
+  }, undefined, 2)}\n`)
+  return target
+}
+
 export async function packageTarget(
   invocation: DesktopPackageInvocation,
   environment: NodeJS.ProcessEnv,
@@ -472,6 +492,8 @@ export async function packageTarget(
   await execute(['run', 'prepare:packages'], targetEnv)
   await execute(['run', 'prepare:dsh', ...(signPrimaryRuntime ? ['--defer-runtime-smoke'] : [])], downloadEnv)
   if (signPrimaryRuntime) await execute(['run', 'sign:primary-runtime', '--dsh'], electronBuilderEnv)
+  // fork: 构建期通道烘焙必须先于 electron-builder（extraResources 引用该产物）
+  bakeEnterpriseManifest(buildPaths.root, process.env.DSH_ENTERPRISE_ENVIRONMENT)
   if (invocation.prepareOnly) return
   if (target.platform === 'darwin' && !invocation.directory) {
     await execute([
@@ -495,6 +517,12 @@ export async function packageTarget(
   } else {
     await signedStage('artifacts', () => execute(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv))
     await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts', ...(invocation.unsigned ? ['--unsigned'] : [])], targetEnv)
+  }
+  if (!invocation.directory && invocation.unsigned) {
+    const version = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
+    const output = electronBuilderEnv.DSH_DESKTOP_UNSIGNED_OUT_DIR
+      ?? desktopDistributionDirectory(version, target.name)
+    writeLocalDistributionMetadata({ version, platform: target.platform, arch: target.arch, output })
   }
   if (!invocation.directory && !invocation.unsigned) writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
   if (journal) recordPackagingEvent(journal, { type: 'artifacts', directory: buildPaths.artifacts })

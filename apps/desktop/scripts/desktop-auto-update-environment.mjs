@@ -6,9 +6,20 @@ import { valid } from 'semver'
 export const DESKTOP_AUTO_UPDATE_ENV = 'DSH_DESKTOP_AUTO_UPDATE_ENV'
 
 const UPDATE_ENVIRONMENTS = {
+  // fork: 企业自托管更新源。产物由 IT 手动上传到自有 HTTPS 静态服务器，不走 COS。
+  enterprise: {
+    originEnvName: 'DSH_ENTERPRISE_UPDATE_ORIGIN',
+    fixedOrigin: undefined,
+    channel: 'latest',
+    feedPath: '_/harness/desktop/stable',
+    bucketEnvName: undefined,
+    secretIdEnvName: undefined,
+    secretKeyEnvName: undefined,
+  },
   test: {
     originEnvName: 'DOWNLOAD_TEST_ORIGIN',
     fixedOrigin: undefined,
+    channel: 'nightly',
     bucketEnvName: 'DOWNLOAD_TEST_COS_BUCKET',
     secretIdEnvName: 'DOWNLOAD_TEST_COS_SECRET_ID',
     secretKeyEnvName: 'DOWNLOAD_TEST_COS_SECRET_KEY',
@@ -16,6 +27,7 @@ const UPDATE_ENVIRONMENTS = {
   production: {
     originEnvName: undefined,
     fixedOrigin: 'https://download.deepseek.com',
+    channel: 'nightly',
     bucketEnvName: 'DOWNLOAD_PROD_COS_BUCKET',
     secretIdEnvName: 'DOWNLOAD_PROD_COS_SECRET_ID',
     secretKeyEnvName: 'DOWNLOAD_PROD_COS_SECRET_KEY',
@@ -24,14 +36,30 @@ const UPDATE_ENVIRONMENTS = {
 
 const UPDATE_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64'])
 
+const UPDATE_CHANNELS = new Set(['latest', 'nightly'])
+
+/** 维小智发布产物的文件名前缀，与 electron-builder 的 artifactName 共用。 */
+export const DESKTOP_ARTIFACT_PREFIX = 'vtl-xiaozhi'
+
+/**
+ * Return the electron-builder artifact base name for one release target.
+ * @param {string} version - Desktop semantic version.
+ * @param {string} os - Target operating system segment (`mac` or `win`).
+ * @param {string} arch - Target architecture segment.
+ * @returns {string} Artifact base name without its extension.
+ */
+export function desktopArtifactBasename(version, os, arch) {
+  return `${DESKTOP_ARTIFACT_PREFIX}-${version}-${os}-${arch}`
+}
+
 /**
  * Resolve the update deployment, defaulting local release work to test.
  * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
- * @returns {'test' | 'production'} Validated deployment name.
+ * @returns {'test' | 'production' | 'enterprise'} Validated deployment name.
  */
 export function resolveDesktopAutoUpdateEnvironment(env) {
   const value = env[DESKTOP_AUTO_UPDATE_ENV]?.trim() || 'test'
-  if (value !== 'test' && value !== 'production') {
+  if (value !== 'test' && value !== 'production' && value !== 'enterprise') {
     throw new Error(`desktop auto-update: ${DESKTOP_AUTO_UPDATE_ENV} must be "test" or "production"`)
   }
   return value
@@ -68,16 +96,20 @@ export function desktopBuildRecordFilename(target) {
  * Return the electron-builder channel metadata filename for an application version.
  * @param {string} version - Desktop semantic version.
  * @param {NodeJS.Platform} platform - Target platform.
+ * @param {string} [channel] - Update channel prefix, for example 'latest' or 'nightly'.
  * @returns {string} Channel metadata filename emitted for the target.
  */
-export function desktopUpdateMetadataFilename(version, platform) {
+export function desktopUpdateMetadataFilename(version, platform, channel = 'nightly') {
   if (valid(version) === null) {
     throw new Error(`desktop auto-update: invalid Desktop version ${JSON.stringify(version)}`)
   }
   if (platform !== 'darwin' && platform !== 'win32') {
     throw new Error(`desktop auto-update: unsupported metadata platform ${platform}`)
   }
-  return `nightly${platform === 'darwin' ? '-mac' : ''}.yml`
+  if (!UPDATE_CHANNELS.has(channel)) {
+    throw new Error(`desktop auto-update: unsupported update channel ${JSON.stringify(channel)}`)
+  }
+  return `${channel}${platform === 'darwin' ? '-mac' : ''}.yml`
 }
 
 /**
@@ -145,13 +177,18 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
     }
     releasePrefix += `/${releaseId}`
   }
-  const keyPrefix = `${releasePrefix}/feeds/${target}`
+  const keyPrefix = environment === 'enterprise'
+    ? `${deployment.feedPath}/${target}`
+    : `${releasePrefix}/feeds/${target}`
   return {
     environment,
     target,
+    channel: deployment.channel,
     origin,
     keyPrefix,
-    binaryKeyPrefix: `${releasePrefix}/bin/${target}`,
+    binaryKeyPrefix: environment === 'enterprise'
+      ? `${deployment.feedPath}/bin/${target}`
+      : `${releasePrefix}/bin/${target}`,
     publicUrl: `${origin}/${keyPrefix}/`,
   }
 }
@@ -166,6 +203,9 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
  */
 export function resolveDesktopUploadConfig(env, platform, arch) {
   const update = resolveDesktopAutoUpdateConfig(env, platform, arch)
+  if (update.environment === 'enterprise') {
+    throw new Error('desktop auto-update: enterprise deployment uses a self-hosted static server, not COS uploads')
+  }
   const deployment = UPDATE_ENVIRONMENTS[update.environment]
   return {
     ...update,

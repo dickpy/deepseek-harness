@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import {
-  IconCheckOutline16, IconChevronRightOutline14, IconSearchOutline16, IconWarningOutline16,
+  IconCheckOutlineRegular, IconChevronRightOutlineRegular, IconSearchOutlineRegular, IconWarningOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { ComposerMenuController, filteredComposerRows } from './composer-menu.ts'
@@ -106,14 +106,14 @@ export function ComposerMenuView({ composerMenu, t }: ComposerMenuViewProps) {
           >
             {item.icon !== undefined && <item.icon className={css.navIcon} size={16} />}
             <span className={css.navLabel}>{item.label}</span>
-            {item.kind === 'panel' && <IconChevronRightOutline14 className={css.navChevron} />}
+            {item.kind === 'panel' && <IconChevronRightOutlineRegular className={css.navChevron} />}
           </button>
         ))}
       </nav>
 
       <section className={css.panel} aria-live="polite">
         <div className={css.searchWrap}>
-          <IconSearchOutline16 className={css.searchIcon} size={16} />
+          <IconSearchOutlineRegular className={css.searchIcon} size={16} />
           <input
             ref={searchRef}
             className={css.search}
@@ -132,7 +132,7 @@ export function ComposerMenuView({ composerMenu, t }: ComposerMenuViewProps) {
           )}
           {state.error !== null && (
             <div className={css.error} role="alert">
-              <IconWarningOutline16 />
+              <IconWarningOutlineRegular />
               <span>{state.error}</span>
               <button type="button" className={css.retry} onClick={() => { composerMenu.retry() }}>
                 {t('composer.retry')}
@@ -161,7 +161,7 @@ export function ComposerMenuView({ composerMenu, t }: ComposerMenuViewProps) {
                   <span className={css.rowTitle}>{row.label}</span>
                   {row.description !== undefined && <span className={css.rowDescription}>{row.description}</span>}
                 </span>
-                {row.active === true && <IconCheckOutline16 className={css.check} />}
+                {row.active === true && <IconCheckOutlineRegular className={css.check} />}
               </button>
             </div>
           ))}

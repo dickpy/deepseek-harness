@@ -29,10 +29,13 @@ function stringMap(value: unknown, label: string): Record<string, string> {
 
 function stringArray(value: unknown, label: string): string[] {
   if (value === undefined) return []
-  if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
-    throw new Error(`${label} must be an array of strings`)
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array of strings`)
+  const result: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') throw new Error(`${label} must be an array of strings`)
+    result.push(item)
   }
-  return [...value] as string[]
+  return result
 }
 
 /**

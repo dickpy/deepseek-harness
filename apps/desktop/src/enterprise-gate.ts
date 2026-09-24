@@ -17,6 +17,7 @@
  * 离线策略：本机有已保存会话但服务器不可达时放行（记警告），
  * 企业插件侧仍以本地缓存/环境变量工作。
  */
+/* eslint-disable @typescript-eslint/no-unnecessary-condition -- electron runtime objects are structurally wider than static declarations */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'

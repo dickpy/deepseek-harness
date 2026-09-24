@@ -38,7 +38,7 @@ import type { SkillEntry } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { InputTriggerHit, InputTriggerServiceContract, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import { IconSkillOutline16, rankByName } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconSkillOutlineRegular, rankByName } from '@deepseek-ai/dsh-client-ui-primitives'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -228,7 +228,6 @@ export function apply(ctx: ClientContext): void {
   // A preset decides which skill providers an agent reads, so a switched
   // session's cached catalog belongs to the composition it no longer runs.
   ctx.remote.$on('agent-preset/selected', invalidate)
-  ctx.effect(() => ctx.remote.$on('skills/change', clearAll), 'ui-skill: catalog invalidation')
   ctx.on('connection/reset', clearAll)
   ctx.effect(() => {
     const unregister = inputTriggers.registerSource(source)
@@ -243,7 +242,7 @@ export function apply(ctx: ClientContext): void {
       registerPanel(panel: {
         id: string
         label(): string
-        icon: typeof IconSkillOutline16
+        icon: typeof IconSkillOutlineRegular
         order?: number
         load(context: { session: { sessionId: SessionId } }, signal: AbortSignal): Promise<{
           searchPlaceholder: string
@@ -252,7 +251,7 @@ export function apply(ctx: ClientContext): void {
             id: string
             label: string
             description?: string
-            icon?: typeof IconSkillOutline16
+            icon?: typeof IconSkillOutlineRegular
             onSelect(context: { session: { sessionId: SessionId }; hit: InputTriggerHit }): void | Promise<void>
           }[]
         }>
@@ -262,7 +261,7 @@ export function apply(ctx: ClientContext): void {
     scope.effect(() => composerMenu.registerPanel({
       id: 'skills',
       label: () => t('composer.title'),
-      icon: IconSkillOutline16,
+      icon: IconSkillOutlineRegular,
       order: 20,
       async load({ session }, signal) {
         const catalog = await fetchCatalog(session.sessionId).promise
@@ -274,7 +273,7 @@ export function apply(ctx: ClientContext): void {
             id: skill.name,
             label: skill.name,
             description: skill.modelInvocable ? skill.description : `${t('menu.userOnly')} ? ${skill.description}`,
-            icon: IconSkillOutline16,
+            icon: IconSkillOutlineRegular,
             onSelect: ({ session: pickedSession, hit }) => {
               const actx = scopedSessions.scope(pickedSession.sessionId)
               if (actx === undefined) throw new Error('skill composer: session scope unavailable')

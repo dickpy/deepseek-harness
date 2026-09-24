@@ -74,7 +74,6 @@ export type {} from '@deepseek-ai/dsh-permission-presets/types'
 export type {} from '@deepseek-ai/dsh-settings/types'
 export type {} from '@deepseek-ai/dsh-user-approval/types'
 export type {} from '@deepseek-ai/dsh-user-questions/types'
-export type { SkillDefinition } from '@deepseek-ai/dsh-skill'
 export type {} from '@deepseek-ai/dsh-api-session-controller/types'
 
 /**

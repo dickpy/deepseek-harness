@@ -42,7 +42,8 @@ export function MorphingText({ texts, morphTime = 2, coolDownTime = 1.3 }: Morph
       setState(initialMorphState(safeTexts.length, coolDownTime))
       return
     }
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+    const reduced = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (reduced) {
       setState({ textIndex1: 0, textIndex2: 0, morph: 0, cooldown: Number.POSITIVE_INFINITY })
       return

@@ -112,6 +112,28 @@ export class DesktopUpdateDialog {
     })
   }
 
+  /** Replace displayed progress without granting installation permission. */
+  update(options: UpdateDialogOptions): void {
+    const active = this.active
+    if (active === undefined || this.disposed || active.window.isDestroyed()) return
+    const locale = typeof this.locale === 'function' ? this.locale() : this.locale
+    const buttons = options.buttons ?? [locale.messages.updateAcknowledge]
+    const cancelId = options.cancelId ?? buttons.length - 1
+    Object.assign(active.view, {
+      revision: ++this.revision,
+      locale: locale.id,
+      title: options.title ?? '',
+      message: options.message,
+      detail: options.detail ?? '',
+      buttons,
+      cancelId,
+      closeLabel: locale.messages.updateClose,
+      technicalDetails: options.technicalDetails ?? '',
+      technicalDetailsLabel: locale.messages.updateTechnicalDetails,
+    })
+    active.window.webContents.send(UPDATE_DIALOG_IPC.changed, active.view)
+  }
+
   /** Cancel the displayed prompt without authorizing any operation. */
   cancel(): void { this.active?.finish(this.active.view.cancelId) }
 

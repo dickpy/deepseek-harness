@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createProfileResolutionGeneration, type Profile } from '@deepseek-ai/dsh-app-boot'
+import { createRuntimeResolution, type Profile } from '@deepseek-ai/dsh-app-boot'
 import { desktopInstallAnchor } from '../../desktop-host/src/install-anchor.ts'
 import { DESKTOP_PROFILE_BUNDLES } from '../src/project-manager.ts'
 
@@ -78,12 +78,12 @@ describe('desktop installation anchor', () => {
       dir: profileDir,
       layers: DESKTOP_PROFILE_BUNDLES.map((packageName) => {
         const packageDir = dirs.get(packageName) as string
-        return { packageName, packageDir, patchPath: join(packageDir, 'cordis.patch.yml'), patches: [] }
+        return { packageName, packageDir, patchPaths: [join(packageDir, 'cordis.patch.yml')], patches: [] }
       }),
       patchPath: join(profileDir, 'cordis.patch.yml'),
       patches: [],
     }
-    const generation = await createProfileResolutionGeneration({
+    const generation = await createRuntimeResolution({
       installAnchor: desktopInstallAnchor(runtimeDir), home, profile,
     })
     const resolved = new Map(generation.entries.map(entry => [entry.name, entry.scope]))

@@ -288,6 +288,9 @@
       "@deepseek-ai/dsh-client-ui-theme": ["./packages/client/ui-theme/src"],
       "@deepseek-ai/dsh-client-ui-settings": ["./packages/client/ui-settings/src"],
       "@deepseek-ai/dsh-client-ui-settings-general": ["./packages/client/ui-settings-general/src"],
+      "@deepseek-ai/dsh-client-ui-enterprise": ["./packages/enterprise/ui-enterprise/src"],
+      "@deepseek-ai/dsh-client-ui-enterprise/client": ["./packages/enterprise/ui-enterprise/src/client"],
+
       "@deepseek-ai/dsh-client-ui-settings-general/types": ["./packages/client/ui-settings-general/src/types.ts"],
       "@deepseek-ai/dsh-client-ui-settings-models": ["./packages/client/ui-settings-models/src"],
       "@deepseek-ai/dsh-client-ui-plugin-manager": ["./packages/client/ui-plugin-manager/src"],
@@ -413,6 +416,7 @@
       "@deepseek-ai/dsh-persona": ["./packages/preset/persona/src"],
       "@deepseek-ai/dsh-plan-mode": ["./packages/plan/plan-mode/src"],
       "@deepseek-ai/dsh-plan-mode/invariant": ["./packages/plan/plan-mode/src/invariant.ts"],
+      "@deepseek-ai/dsh-plugin-enterprise": ["./packages/enterprise/plugin-enterprise/src"],
       "@deepseek-ai/dsh-plugin-package-inventory-deepseek": ["./packages/llm/plugin-package-inventory-deepseek/src"],
       "@deepseek-ai/dsh-ptc-runtime": ["./packages/ptc-runtime/ptc-runtime/src"],
       "@deepseek-ai/dsh-ptc-runtime-node": ["./packages/ptc-runtime/ptc-runtime-node/src"],

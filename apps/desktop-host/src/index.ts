@@ -8,6 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-deepseek-account'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { desktopInstallAnchor } from './install-anchor.ts'
 import * as desktopOffice from './office.ts'
 
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
@@ -18,14 +19,14 @@ async function main(): Promise<void> {
   const runtimeDir = process.argv[2] as string
   const projectDir = process.argv[3] as string
   installOfficeEngineResolution(runtimeDir)
-  const installAnchor = join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
+  const installAnchor = desktopInstallAnchor(runtimeDir)
   const profile = loadProfileDirectory('dsh', projectDir, installAnchor)
   const application = runProfile({
     environment: loadLayeredEnv('dsh'),
     profile: 'desktop',
     resolvedProfile: { profile, installAnchor },
     patchFiles: [],
-    args: ['--no-open', '--port', '19387'],
+    args: ['--no-open', '--port', process.env.DSH_DESKTOP_PORT ?? '19387'],
     ...(process.argv[5] === undefined ? {} : {
       packageManager: {
         command: process.execPath,

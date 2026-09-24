@@ -91,6 +91,7 @@ describe('desktop auto-update environment', () => {
       origin: 'https://desktop-updates.example.com',
       publicUrl: 'https://desktop-updates.example.com/_/harness/desktop/stable/win-x64/',
       keyPrefix: '_/harness/desktop/stable/win-x64',
+      binaryKeyPrefix: '_/harness/desktop/stable/bin/win-x64',
     })
     expect(() => resolveDesktopAutoUpdateConfig({ DSH_DESKTOP_AUTO_UPDATE_ENV: 'enterprise' }, 'win32', 'x64'))
       .toThrow(/DSH_ENTERPRISE_UPDATE_ORIGIN/u)

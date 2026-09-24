@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-confusing-void-expression -- test callback intentionally returns void */
 import { readFileSync, statSync } from 'node:fs'
 import { runInContext } from 'node:vm'
 import { expect, it, onTestFinished, vi } from 'vitest'

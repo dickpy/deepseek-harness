@@ -1,3 +1,6 @@
+// Type-only: slot declarations from the conversation owner.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'

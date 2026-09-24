@@ -41,6 +41,7 @@ import { DesktopUpdateJournal } from './update-journal.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
 import { DesktopUpdateSchedule, resolveDesktopUpdateScheduleConfig } from './update-schedule.ts'
 import { desktopUpdateErrorSummary, presentDesktopUpdate } from './update-presentation.ts'
+import { clearEnterpriseSession, ensureEnterpriseGate, gateEnabled } from './enterprise-gate.ts'
 import { desktopErrorState } from './startup-error.ts'
 import { DesktopMandatoryUpdatePolicy, resolveDesktopPolicyConfig, type DesktopPolicyState } from './mandatory-update-policy.ts'
 import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
@@ -119,6 +120,28 @@ protocol.registerSchemesAsPrivileged([{
     codeCache: true,
   },
 }])
+
+/** Create the fixed-size enterprise login window. */
+function createLoginWindow(preload: string, title: string): BrowserWindow {
+  const window = new BrowserWindow({
+    width: 960,
+    height: 600,
+    useContentSize: true,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    title,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f1218' : '#f7f8fa',
+    webPreferences: { preload, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
+  })
+  window.removeMenu()
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.on('will-navigate', (event, url) => {
+    if (new URL(url).protocol !== `${SCHEME}:`) event.preventDefault()
+  })
+  return window
+}
 
 interface RuntimeResources {
   readonly nodeBin: string
@@ -287,6 +310,45 @@ async function main(): Promise<void> {
   const journalDirectory = process.env.DSH_DESKTOP_UPDATE_JOURNAL_DIR
   const updateJournal = journalDirectory === undefined ? undefined : new DesktopUpdateJournal(journalDirectory, app.getVersion())
   const resources = runtimeResources()
+  let locale = resolveDesktopLocale(app.getLocale())
+  const messages = locale.messages
+  const appPreload = fileURLToPath(new URL('./preload-app.cjs', import.meta.url))
+
+  // Register the shell protocol before the gate so the login document can load.
+  let appRequest: (request: Request) => Promise<Response> =
+    () => Promise.resolve(new Response(null, { status: 503 }))
+  protocol.handle(SCHEME, (request) => {
+    const url = new URL(request.url)
+    if (url.hostname === 'shell') return serveWebDocument(request, join(app.getAppPath(), 'renderer'))
+    if (url.hostname !== 'app') return Promise.resolve(new Response(null, { status: 404 }))
+    return appRequest(request)
+  })
+  ipcMain.handle(DESKTOP_IPC.localeGet, (event) => {
+    assertDesktopSender(event, ['shell'])
+    return locale
+  })
+  ipcMain.handle(DESKTOP_IPC.versionGet, (event) => {
+    assertDesktopSender(event, ['shell', 'app'])
+    return app.getVersion()
+  })
+  ipcMain.handle('dsh-desktop:enterprise-logout', (event, payload: unknown) => {
+    assertDesktopSender(event, ['app'])
+    const mode = (payload as { mode?: unknown } | null)?.mode === 'switch' ? 'switch' : 'logout'
+    clearEnterpriseSession(mode)
+    app.relaunch()
+    app.quit()
+  })
+  if (gateEnabled(process.env, app.isPackaged)) {
+    const gate = await ensureEnterpriseGate({
+      app, env: process.env, isPackaged: app.isPackaged,
+      warn: (message) => { console.warn('[dsh-enterprise-gate]', message) },
+      createWindow: () => createLoginWindow(appPreload, messages.enterpriseLoginWindowTitle),
+      windowTitle: messages.enterpriseLoginWindowTitle,
+      appName: messages.loginBrandName,
+    })
+    if (gate.kind === 'cancelled') return
+  }
+
   const paths = resolveDesktopPaths()
   const development = !app.isPackaged
   const activeProject = paths.profile
@@ -302,8 +364,9 @@ async function main(): Promise<void> {
   let updateStoppedHost = false
   let updateStopFailure: DesktopHostUncleanExitError | undefined
   let updateState: DesktopUpdateState = { phase: 'idle' }
+  let updateProgressVisible = false
   const systemLanguages = app.getPreferredSystemLanguages()
-  let locale = resolveDesktopStartupLocale(null, systemLanguages)
+  locale = resolveDesktopStartupLocale(null, systemLanguages)
   windowsLanguage = locale.id
   let mandatoryPolicy: DesktopMandatoryUpdatePolicy | undefined
   let mandatoryUI: DesktopMandatoryUpdateWindow | undefined
@@ -331,7 +394,6 @@ async function main(): Promise<void> {
       detail: formatDesktopMessage(locale.messages.aboutVersion, { version: app.getVersion() }),
       buttons: [locale.messages.updateAcknowledge], cancelId: 0 })
   }
-  const appPreload = fileURLToPath(new URL('./preload-app.cjs', import.meta.url))
   const applicationUrl = `${SCHEME}://app/`
   let hostUrl: string | undefined
   let hostCookie: string | undefined
@@ -434,10 +496,25 @@ async function main(): Promise<void> {
     }
     return shown
   }
+  const updateProgressOptions = (state: DesktopUpdateState): UpdateDialogOptions => {
+    const percent = Math.round(Math.min(100, Math.max(0, state.percent ?? 0)))
+    const message = state.phase === 'verifying'
+      ? locale.messages.updateVerifying
+      : state.phase === 'installing'
+        ? locale.messages.updateInstalling
+        : formatDesktopMessage(locale.messages.updateDownloading, { percent: String(percent) })
+    return { type: 'info', title: locale.messages.updateTitle, message,
+      detail: formatDesktopMessage(locale.messages.updateDetail, { version: state.version ?? '' }),
+      buttons: [locale.messages.updateHideProgress], cancelId: 0 }
+  }
+
   const publishUpdate = (state: DesktopUpdateState): DesktopUpdateState => {
     updateJournal?.state(state)
     updateState = state
     mandatoryUI?.sync()
+    if (updateProgressVisible && (state.phase === 'downloading' || state.phase === 'verifying' || state.phase === 'installing')) {
+      updateDialog.update(updateProgressOptions(state))
+    }
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send(DESKTOP_IPC.updatesPresentation, presentDesktopUpdate(state))
     }
@@ -542,28 +619,31 @@ async function main(): Promise<void> {
 
   const downloadUpdate = async (version: string): Promise<DesktopUpdateState> => {
     updateJournal?.action('download-requested')
-    const state = await updates.download(version)
-    if (state.phase !== 'ready' || quitting) return state
-    // Only a completed user-driven download opens this prompt; cancelling installation does not reopen it.
-    return updates.install(version)
+    if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
+      updateProgressVisible = true
+      void updateDialog.show(mainWindow, updateProgressOptions({ phase: 'downloading', version, percent: 0 }))
+    }
+    try {
+      const state = await updates.download(version)
+      if (state.phase !== 'ready' || quitting) return state
+      // Only a completed user-driven download opens this prompt; cancelling installation does not reopen it.
+      return await updates.install(version)
+    } finally {
+      updateProgressVisible = false
+    }
   }
 
-  protocol.handle(SCHEME, (request) => {
+  appRequest = (request) => {
     const url = new URL(request.url)
-    // Shell-owned documents live in the application bundle and never pass through the Host.
-    if (url.hostname === 'shell') return serveWebDocument(request, join(app.getAppPath(), 'renderer'))
-    if (url.hostname === 'app') {
-      if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname.startsWith('/assets/')
-        || ['/favicon.svg', '/manifest.webmanifest'].includes(url.pathname)) {
-        return serveWebDocument(request, join(resources.dsh, 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist'))
-      }
-      if (backend.host === undefined || hostUrl === undefined || hostCookie === undefined) {
-        return Promise.resolve(new Response(null, { status: 503 }))
-      }
-      return forwardWebRequest(request, hostUrl, hostCookie)
+    if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname.startsWith('/assets/')
+      || ['/favicon.svg', '/manifest.webmanifest'].includes(url.pathname)) {
+      return serveWebDocument(request, join(resources.dsh, 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist'))
     }
-    return Promise.resolve(new Response(null, { status: 404 }))
-  })
+    if (backend.host === undefined || hostUrl === undefined || hostCookie === undefined) {
+      return Promise.resolve(new Response(null, { status: 503 }))
+    }
+    return forwardWebRequest(request, hostUrl, hostCookie)
+  }
 
   installDesktopDirectoryPicker(() => mainWindow)
   installMicrophonePermissions(session.defaultSession, () => mainWindow?.webContents)
@@ -788,12 +868,12 @@ async function main(): Promise<void> {
   })
 
   app.setAboutPanelOptions({
-    applicationName: 'DeepSeek Harness',
+    applicationName: '维小智',
     applicationVersion: app.getVersion(),
     // The release has no separate build number; omit Electron's bundle version.
     version: '',
     copyright: '',
-    iconPath: development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
+    iconPath: development ? join(app.getAppPath(), 'build', 'icon.png')
       : join(process.resourcesPath, 'icon.png'),
   })
   // A custom application menu replaces Electron's default menu, so macOS needs

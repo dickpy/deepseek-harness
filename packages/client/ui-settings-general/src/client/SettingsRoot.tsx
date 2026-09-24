@@ -139,7 +139,7 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
     setActiveId(id)
     setOpen(true)
   }, [])
-  useEffect(() => settingsPanel.register((sectionId) => {
+  useEffect(() => settingsPanel.register((sectionId?: string) => {
     if (sectionId === undefined) setOpen(true)
     else openSection(sectionId)
   }), [openSection, settingsPanel])

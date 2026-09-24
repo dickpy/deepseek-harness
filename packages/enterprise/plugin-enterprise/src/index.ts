@@ -21,6 +21,10 @@
  * External services are injected by key; MCP connectors reuse the dsh-mcp-client contract.
  * Other boundaries stay structural so the plugin can still be built and installed independently.
  */
+/* eslint-disable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-type-assertion,
+   @typescript-eslint/no-unnecessary-type-conversion, @typescript-eslint/no-unnecessary-boolean-literal-compare,
+   @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-member-access -- structural Host context */
 
 import { randomUUID } from 'node:crypto'
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -137,12 +141,6 @@ interface PluginFiber extends PromiseLike<FiberLike> {
 interface EnterpriseCtx {
   settings: {
     update(ns: string, patch: object): Promise<void>
-    get(ns: string): unknown
-    register(
-      ns: string,
-      schema: unknown,
-      options?: { base?: unknown },
-    ): SettingsScopeLike
   }
   plugin(plugin: unknown, config?: unknown): PluginFiber
   inject(names: string[], callback: (ctx: EnterpriseCtx) => void): void
@@ -154,16 +152,6 @@ interface EnterpriseCtx {
   effect(fn: () => unknown, name?: string): unknown
 }
 
-/** 一个命名空间 scope 的最小面：设置桥用 get/replace，技能开关监听用 watch */
-interface SettingsScopeLike {
-  get(): unknown
-  replace(section: object): Promise<void>
-  /**
-   * 观察该命名空间已提交的变更。可选：老版本 settings 服务没有这个方法，
-   * 那时「技能广场」的开关退化成「下一轮云端同步时生效」。
-   */
-  watch?(callback: (next: unknown, prev: unknown) => void | Promise<void>): () => void
-}
 
 const DEVICE_TOKEN_REF = 'DSH_ENTERPRISE_DEVICE_TOKEN'
 const INSTALLATION_ID_REF = 'DSH_ENTERPRISE_INSTALLATION_ID'
@@ -188,7 +176,6 @@ interface EnterpriseDeviceIdentity {
 // （右下角用户名徽标 / 按 menus 显隐设置入口）。
 // ---------------------------------------------------------------------------
 
-const SESSION_SETTINGS_NS = 'dsh-enterprise'
 
 /** 会话首页目录里一个二级 tab 的下发形态（与客户端 home-catalog.ts 对应） */
 const homeActionSchema = z.object({
@@ -363,6 +350,66 @@ const sessionSchema = z.object({
   lastSyncAt: z.string().default(''),
 })
 
+/** Loader-visible configuration for the enterprise plugin. */
+export const Config = z.object({
+  serverUrl: z.string().default('http://localhost:8080/api/v1').volatile(),
+  email: z.string().default(''),
+  password: z.string().default(''),
+  passwordEnv: z.string().default('DSH_ENTERPRISE_PASSWORD'),
+  deviceName: z.string().default(''),
+  syncIntervalMs: z.number().default(60_000),
+  telemetryEnabled: z.boolean().default(true),
+  applyDefaultModel: z.boolean().default(true),
+  syncSkills: z.boolean().default(true),
+  user: z.object({
+    email: z.string().default(''),
+    name: z.string().default(''),
+    role: z.string().default(''),
+  }).default({ email: '', name: '', role: '' }).volatile(),
+  menus: z.array(z.string()).default([]).volatile(),
+  agents: z.array(z.string()).default([]).volatile(),
+  plugins: z.array(z.string()).default([]).volatile(),
+  skills: z.array(skillSummarySchema).default([]).volatile(),
+  userSkills: z.array(userSkillSchema).default([]).volatile(),
+  connectors: z.array(connectorSchema).default([]).volatile(),
+  disabledSkills: z.array(z.string()).default([]).volatile(),
+  examples: z.array(homeExampleSchema).default([]).volatile(),
+  home: z.union([z.array(homeCategorySchema), z.const(undefined)]).volatile(),
+  configRevision: z.number().default(0).volatile(),
+  lastSyncAt: z.string().default('').volatile(),
+  lastAgents: z.array(z.string()).default([]).volatile(),
+  lastPlugins: z.array(z.string()).default([]).volatile(),
+})
+
+/** Read a Cordis volatile field or an ordinary value. */
+function readLive<T>(value: T | { get(): T }): T {
+  return typeof value === 'object' && value !== null && 'get' in value ? value.get() : value as T
+}
+
+/** Project the live plugin configuration into the SessionSettings shape. */
+function sessionFromConfig(raw: Record<string, unknown>): SessionSettings {
+  const read = <T>(key: string, fallback: T): T => {
+    const value = raw[key]
+    return value === undefined ? fallback : readLive(value as T | { get(): T })
+  }
+  return sessionSchema({
+    serverUrl: read('serverUrl', 'http://localhost:8080/api/v1'),
+    user: read('user', { email: '', name: '', role: '' }),
+    menus: read('menus', []),
+    agents: read('agents', []),
+    plugins: read('plugins', []),
+    skills: read('skills', []),
+    userSkills: read('userSkills', []),
+    connectors: read('connectors', []),
+    disabledSkills: read('disabledSkills', []),
+    examples: read('examples', []),
+    ...(raw.home === undefined ? {} : { home: read('home', undefined as unknown[] | undefined) }),
+    configRevision: read('configRevision', 0),
+    lastSyncAt: read('lastSyncAt', ''),
+  } as never) as SessionSettings
+}
+
+
 async function request<T>(serverUrl: string, method: string, path: string, body?: unknown, token?: string): Promise<T> {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (token) headers.authorization = `Bearer ${token}`
@@ -380,18 +427,20 @@ async function request<T>(serverUrl: string, method: string, path: string, body?
 
 export function normalizeConfig(raw: Record<string, unknown> | undefined): EnterpriseConfig {
   const r = raw ?? {}
+  const value = <T>(key: string, fallback: T): T => {
+    const current = r[key]
+    return current === undefined ? fallback : readLive(current as T | { get(): T })
+  }
   return {
-    serverUrl: String(r.serverUrl || 'http://localhost:8080/api/v1').replace(/\/$/, ''),
-    email: String(r.email || ''),
-    password: String(r.password || ''),
-    passwordEnv: String(r.passwordEnv || 'DSH_ENTERPRISE_PASSWORD'),
-    deviceName: String(r.deviceName || ''),
-    // 默认 60s：管理台改了角色的可见菜单/模型下发后，桌面端要尽快拉到；
-    // 5 分钟的旧默认会让管理员以为「没生效」。下限仍是 30s 防止把服务端打满。
-    syncIntervalMs: Math.max(30_000, Number(r.syncIntervalMs) || 60_000),
-    telemetryEnabled: r.telemetryEnabled !== false,
-    applyDefaultModel: r.applyDefaultModel !== false,
-    syncSkills: r.syncSkills !== false,
+    serverUrl: String(value('serverUrl', 'http://localhost:8080/api/v1')).replace(/\/$/, ''),
+    email: String(value('email', '')),
+    password: String(value('password', '')),
+    passwordEnv: String(value('passwordEnv', 'DSH_ENTERPRISE_PASSWORD')),
+    deviceName: String(value('deviceName', '')),
+    syncIntervalMs: Math.max(30_000, Number(value('syncIntervalMs', 60_000)) || 60_000),
+    telemetryEnabled: value<boolean>('telemetryEnabled', true) !== false,
+    applyDefaultModel: value<boolean>('applyDefaultModel', true) !== false,
+    syncSkills: value<boolean>('syncSkills', true) !== false,
   }
 }
 
@@ -512,13 +561,14 @@ async function sync(
   config: EnterpriseConfig,
   token: string,
   identity: EnterpriseDeviceIdentity,
+  getSettings: () => SessionSettings,
 ): Promise<void> {
   await reportDevice(config, token, identity)
   const cloud = await request<CloudConfig>(config.serverUrl, 'GET', '/client/config', undefined, token)
   // 首页目录要区分「平台没配过」（字段缺省）与「管理员删空了」（空数组）：
   // 服务端未下发的字段不回写，避免把已下发的目录清掉。
   const homeProvided = Object.hasOwn(cloud, 'home') && Array.isArray(cloud.home)
-  const section = ctx.settings.get(SESSION_SETTINGS_NS) as Partial<SessionSettings> | undefined
+  const section = getSettings()
   const userSkillNames = new Set(readUserSkills(section).map(skill => skill.name))
   const installed = config.syncSkills
     ? await syncSkills(config, token, cloud.skills ?? [], userSkillNames)
@@ -1194,13 +1244,10 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
   let timer: ReturnType<typeof setInterval> | null = null
   let syncTimer: ReturnType<typeof setInterval> | null = null
   // 设置文档桥：客户端从这里读企业身份与菜单
-  let sessionScope: SettingsScopeLike | null = null
+  let liveSession = sessionFromConfig(rawConfig)
 
   const publishSession = async (session: Partial<SessionSettings>): Promise<void> => {
-    if (sessionScope === null) return
-    const current = (sessionScope.get() as Partial<SessionSettings>) ?? {}
-    // `home` 缺省 = 这次同步没带首页目录（平台没配置过），保留上一份；
-    // 带了空数组 = 管理员把 tab 都删了，必须原样写下去。
+    const current = liveSession
     const home = Object.hasOwn(session, 'home') ? session.home : current.home
     const section = {
       serverUrl: session.serverUrl ?? current.serverUrl ?? config.serverUrl,
@@ -1211,33 +1258,21 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
       skills: session.skills ?? current.skills ?? [],
       userSkills: session.userSkills ?? current.userSkills ?? [],
       connectors: session.connectors ?? current.connectors ?? [],
-      // `replace` 会整段覆盖用户层，所以客户端写的开关必须原样带回：
-      // 漏掉这一行，用户每关一个技能都会在下一次云端同步（默认 60s）被打开。
       disabledSkills: session.disabledSkills ?? current.disabledSkills ?? [],
-      // 首页样例是平台下发的内容（客户端只读），本轮回没带就保留上一份
       examples: session.examples ?? current.examples ?? [],
       ...(home === undefined ? {} : { home }),
       configRevision: session.configRevision ?? current.configRevision ?? 0,
       lastSyncAt: session.lastSyncAt ?? new Date().toISOString(),
     } satisfies SessionSettings
-    // register 的登记在 settings 服务侧异步生效；首个同步请求可能在生效前返回，
-    // 对「not registered」做有界重试而不是丢掉这次会话写入。
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        await sessionScope.replace(section)
-        return
-      } catch (e) {
-        if (attempt >= 9 || !String(e).includes('not registered')) {
-          log('写入客户端会话设置失败：', e)
-          return
-        }
-        await new Promise((resolve) => { setTimeout(resolve, 200) })
-      }
+    try {
+      await ctx.settings.update(PLUGIN_NS, section)
+      liveSession = section
+    } catch (e) {
+      log('?????????', e)
     }
   }
 
   const connectorMounts = new ConnectorMounts(enterpriseCtx)
-  let watchStop: (() => void) | null = null
   let managedQueue: Promise<void> = Promise.resolve()
 
   const reconcileManagedState = async (value: Partial<SessionSettings> | null | undefined): Promise<void> => {
@@ -1268,47 +1303,18 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
 
   publishSessionRef = publishSession
 
-  enterpriseCtx.inject(['settings'], (settingsCtx: EnterpriseCtx) => {
-    try {
-      // register 返回命名空间 scope（get/replace）；installSection 是「可选设置消费者」
-      // 专用 API（必填 setSource/onChange hooks、无返回值），不适用于插件自持有命名空间。
-      sessionScope = settingsCtx.settings.register(
-        SESSION_SETTINGS_NS,
-        sessionSchema,
-        {
-          base: {
-            serverUrl: config.serverUrl,
-            user: { email: '', name: '', role: '' },
-            menus: [],
-            agents: [],
-            plugins: [],
-            skills: [],
-            userSkills: [],
-            connectors: [],
-            disabledSkills: [],
-            examples: [],
-            configRevision: 0,
-            lastSyncAt: '',
-          },
-        },
-      )
-      void publishSession({})
-      void scheduleManagedState(sessionScope.get() as Partial<SessionSettings>)
-      if (sessionScope.watch === undefined) {
-        log('settings service has no watch; local skills and connectors sync on next startup')
-      } else {
-        watchStop = sessionScope.watch(next => scheduleManagedState(next as Partial<SessionSettings>))
-      }
-    } catch (e) {
-      log('安装 dsh-enterprise 设置节失败：', e)
-    }
-  })
+  const reloadLiveSession = (): void => {
+    liveSession = sessionFromConfig(rawConfig)
+    void scheduleManagedState(liveSession)
+  }
+  if (typeof ctx.on === 'function') ctx.on('loader/volatile-update', reloadLiveSession)
+  void scheduleManagedState(liveSession)
 
   const bootstrap = async (serviceCtx: EnterpriseCtx) => {
     try {
       const identity = await resolveDeviceIdentity(serviceCtx, config)
       const token = await ensureDeviceToken(serviceCtx, config, identity)
-      await sync(serviceCtx, config, token, identity)
+      await sync(serviceCtx, config, token, identity, () => liveSession)
 
       if (config.telemetryEnabled) {
         // 令牌每次 flush 时现读凭据库（吊销/重注册即时生效）
@@ -1327,7 +1333,7 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
         void (async () => {
           try {
             const t = await serviceCtx.credentials.resolve(DEVICE_TOKEN_REF)
-            if (t?.value) await sync(serviceCtx, config, t.value, identity)
+            if (t?.value) await sync(serviceCtx, config, t.value, identity, () => liveSession)
           } catch (e) {
             log('云端同步失败（下个周期重试）：', e)
           }
@@ -1351,7 +1357,6 @@ export function apply(ctx: any, rawConfig: Record<string, unknown>): void {
   ctx.effect(() => () => {
     if (timer) clearInterval(timer)
     if (syncTimer) clearInterval(syncTimer)
-    watchStop?.()
     void connectorMounts.dispose()
   }, 'dsh-enterprise:cleanup')
 }

@@ -18,7 +18,7 @@
       "path": "../../api/workspace-controller/tsconfig.client.json"
     },
     {
-      "path": "../../client/locale"
+      "path": "../../client/locale/tsconfig.client.json"
     },
     {
       "path": "../../client/store"
@@ -33,10 +33,10 @@
       "path": "../../client/ui-renderer"
     },
     {
-      "path": "../../client/ui-settings"
+      "path": "../../client/ui-settings/tsconfig.client.json"
     },
     {
-      "path": "../../client/ui-settings-general"
+      "path": "../../client/ui-settings-general/tsconfig.client.json"
     },
     {
       "path": "../../client/ui-slots"
@@ -45,7 +45,7 @@
       "path": "../../client/ui-sidebar"
     },
     {
-      "path": "../../client/ui-conversation"
+      "path": "../../client/ui-conversation/tsconfig.client.json"
     }
   ]
 }

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-confusing-void-expression -- assertion helpers intentionally return void */
 import { describe, expect, it } from 'vitest'
 import {
   assertLoginSender,

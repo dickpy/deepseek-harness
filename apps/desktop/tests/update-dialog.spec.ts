@@ -13,7 +13,6 @@ const fixture = await vi.hoisted(async () => {
       send: vi.fn(),
       mainFrame: { url: 'dsh-app://shell/update-dialog.html' },
       setWindowOpenHandler: vi.fn(),
-      send: vi.fn(),
       insertCSS: vi.fn(async () => 'blur'),
       removeInsertedCSS: vi.fn(async () => {}),
     })
@@ -81,7 +80,7 @@ it('updates the active dialog with a new visible progress state', async () => {
   const window = fixture.windows.at(-1)!
   dialogs!.update({ message: '正在下载 42%…', detail: '版本 0.0.6',
     buttons: ['在后台继续'], cancelId: 0 })
-  expect(window.webContents.send).toHaveBeenCalledWith(UPDATE_DIALOG_IPC.presentation,
+  expect(window.webContents.send).toHaveBeenCalledWith(UPDATE_DIALOG_IPC.changed,
     expect.objectContaining({ message: '正在下载 42%…', buttons: ['在后台继续'], cancelId: 0 }))
   expect(f.invoke(UPDATE_DIALOG_IPC.status)).toMatchObject({ message: '正在下载 42%…', buttons: ['在后台继续'] })
   f.invoke(UPDATE_DIALOG_IPC.respond, 0)

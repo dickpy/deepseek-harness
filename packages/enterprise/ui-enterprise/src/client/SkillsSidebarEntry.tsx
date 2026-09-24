@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
-import { IconSkillOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconSkillOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarSkillsOwnerProps } from './index.ts'
 import type { EnterpriseBadgeState } from './enterprise-store.ts'
 import { NS } from './locales.ts'
@@ -50,7 +50,7 @@ export function SkillsSidebarEntry(props: SkillsSidebarEntryProps): ReactNode {
         onClick={() => { selectPanel(active ? null : PANEL_ID) }}
       >
         <span className={css.glyph} aria-hidden="true">
-          <IconSkillOutline16 size={wide ? 15 : 18} />
+          <IconSkillOutlineRegular size={wide ? 15 : 18} />
         </span>
         {wide && <span className={css.label}>{label}</span>}
         {wide && state.skills.length > 0 && (

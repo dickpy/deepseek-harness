@@ -11,6 +11,7 @@ vi.mock('../scripts/macos-notarization-proxy.ts', () => ({
 }))
 vi.mock('../scripts/notarize-macos.mjs', () => ({ notarizeMacOS: vi.fn(async () => {}) }))
 vi.mock('../scripts/package-macos.ts', () => ({ packageMacOSArtifacts: vi.fn(async () => {}) }))
+vi.mock('../scripts/local-distribution.ts', () => ({ writeLocalDistributionMetadata: vi.fn() }))
 
 vi.mock('../scripts/windows-signing-stage.mjs', () => ({
   withWindowsSigningStage: vi.fn(async (_options: object, operation: () => Promise<void>) => operation()),

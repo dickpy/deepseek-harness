@@ -7,7 +7,7 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
-import { IconListPenOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconListPenOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: pulls the 'conversation.input.overlay' SlotMap declaration (the
 // key's owner) into this program so the overlay registration below typechecks
 // against the real declaration — no runtime edge to ui-conversation.
@@ -87,7 +87,7 @@ export function apply(ctx: ClientContext): void {
     scope.effect(() => composerMenu.registerPanel({
       id: COMMANDS_PANEL,
       label: () => t('section.commands'),
-      icon: IconListPenOutline16,
+      icon: IconListPenOutlineRegular,
       order: 10,
       async load({ session }, signal) {
         const rows = await command.composerRows(session, signal)

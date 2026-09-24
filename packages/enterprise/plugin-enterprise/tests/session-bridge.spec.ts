@@ -1,9 +1,11 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-base-to-string -- fork test uses structural Host doubles */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { apply } from '../src/index.ts'
+import { apply, Config } from '../src/index.ts'
 
 /**
  * The enterprise plugin's two client-facing bridges, driven through its real
@@ -147,6 +149,10 @@ interface RegisteredNamespace {
   update: (patch: object) => Promise<void>
 }
 
+function live<T>(value: T | { get(): T }): T {
+  return typeof value === 'object' && value !== null && 'get' in value ? value.get() : value
+}
+
 function endpointOf(input: unknown): string {
   return new URL(String(input)).pathname
 }
@@ -158,10 +164,26 @@ function createFakeContext() {
   /** 每个命名空间的观察者：注册者用 watch 订阅（技能开关的即时生效走这条路径）。 */
   const watchers: Record<string, ((next: unknown, prev: unknown) => void | Promise<void>)[]> = {}
   const pluginCalls: { plugin: unknown; config: unknown; dispose: ReturnType<typeof vi.fn> }[] = []
+  const eventListeners = new Map<string, Set<(...args: unknown[]) => void>>()
+  let rawConfig: Record<string, unknown> | undefined
 
   const settings = {
+    attachConfig(config: Record<string, unknown>): void { rawConfig = config },
     async update(ns: string, patch: object) {
-      stored[ns] = { ...(stored[ns] as object ?? {}), ...patch }
+      const current = { ...(stored[ns] as object ?? {}), ...patch }
+      stored[ns] = current
+      if (ns === 'dsh-enterprise' && rawConfig !== undefined) Object.assign(rawConfig, patch)
+      for (const listener of eventListeners.get('loader/volatile-update') ?? []) listener()
+      namespaces[ns] = {
+        schema: value => Config(value ?? {}),
+        base: undefined,
+        section: () => stored[ns] as PublishedSection,
+        update: async (next: object) => {
+          stored[ns] = { ...(stored[ns] as object ?? {}), ...next }
+          if (ns === 'dsh-enterprise' && rawConfig !== undefined) Object.assign(rawConfig, next)
+          for (const listener of eventListeners.get('loader/volatile-update') ?? []) listener()
+        },
+      }
     },
     get(ns: string) {
       return stored[ns]
@@ -218,11 +240,16 @@ function createFakeContext() {
       pluginCalls.push({ plugin, config, dispose })
       return { dispose }
     },
-    on() {},
+    on(name: string, listener: (...args: unknown[]) => void) {
+      const listeners = eventListeners.get(name) ?? new Set()
+      listeners.add(listener)
+      eventListeners.set(name, listeners)
+      return () => { listeners.delete(listener) }
+    },
     effect() {},
   }
 
-  return { ctx, namespaces, pluginCalls }
+  return { ctx, namespaces, pluginCalls, settings }
 }
 
 async function waitFor<T>(probe: () => T | undefined | Promise<T | undefined>, attempts = 200): Promise<T> {
@@ -262,7 +289,7 @@ async function startPlugin(overrides: Record<string, unknown> = {}) {
   })
   vi.stubGlobal('fetch', fetchMock)
 
-  apply(fake.ctx, {
+  const config = {
     serverUrl: 'http://enterprise.test/api/v1',
     email: 'dev@company.com',
     password: 'Passw0rd!123',
@@ -274,7 +301,9 @@ async function startPlugin(overrides: Record<string, unknown> = {}) {
     // would reach the real network, so each test drives exactly one bridge.
     syncSkills: false,
     ...overrides,
-  })
+  }
+  fake.settings.attachConfig(config)
+  apply(fake.ctx, config)
 
   // Registration publishes an empty section before the first sync resolves, so
   // wait for the synced identity rather than for the section to merely exist.
@@ -310,7 +339,7 @@ describe('enterprise plugin client bridges', () => {
     // A home action's absent skill/prompt normalize to empty strings; the browser
     // half drops those while decoding, so an action without either stays label-only.
     const resolved = registered.schema({ ...registered.base as object, home: HOME }) as PublishedSection
-    expect(resolved.home).toEqual([
+    expect(live(resolved.home)).toEqual([
       {
         id: 'general',
         label: '通用助手',
@@ -327,8 +356,8 @@ describe('enterprise plugin client bridges', () => {
     // 缺省 = 平台没配置过（客户端回退内置默认），空数组 = 管理员删空了。
     // 这条约束靠 `z.array(...).default(undefined)` 保住：schemastery 对数组
     // schema 会默认物化 `[]`，只写 `z.array(...)` 会把两种语义又抹成一种。
-    expect(registered.schema({ ...registered.base as object, home: [] })).toMatchObject({ home: [] })
-    expect(Object.hasOwn(registered.schema(registered.base) as object, 'home')).toBe(false)
+    expect(live((registered.schema({ ...registered.base as object, home: [] }) as PublishedSection).home)).toEqual([])
+    expect(live((registered.schema(registered.base) as PublishedSection).home)).toBeUndefined()
   })
 
   it('publishes the section the browser half reads, menus included', async () => {

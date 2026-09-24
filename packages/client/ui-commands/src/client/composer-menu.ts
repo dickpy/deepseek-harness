@@ -371,7 +371,7 @@ export class ComposerMenuRuntime extends Service {
   }
 
   controllerFor(sessionId: string): ComposerMenuController {
-    const sessions = this.ctx.get('sessions') as ISessions | undefined
+    const sessions: ISessions | undefined = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('composerMenu: sessions service unavailable')
     const scope = sessions.scope(sessionId as never)
     if (scope === undefined) throw new Error(`composerMenu: session ${sessionId} resolved no scope`)

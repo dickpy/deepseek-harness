@@ -1,7 +1,13 @@
 /** Origin-scoped boot, native directory selection, host paths of picked files, and update presentation with native confirmation actions. */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { DESKTOP_IPC, SCHEME, type DshDesktopProductApi, type DesktopUpdatePresentation } from './ipc.ts'
+import {
+  DESKTOP_IPC,
+  SCHEME,
+  type DshDesktopLoginApi,
+  type DshDesktopProductApi,
+  type DesktopUpdatePresentation,
+} from './ipc.ts'
 import { PLATFORM_IPC } from './platform-ipc.ts'
 import { markDocumentPlatform, syncWindowFullscreen } from './preload-platform.ts'
 import { syncNativeTheme } from './preload-theme.ts'
@@ -9,10 +15,19 @@ import { syncWindowsAppearance } from './preload-windows.ts'
 import { installMandatoryUpdateOverlay } from './preload-mandatory-overlay.ts'
 import { createDesktopBrowserBridge } from './preload-browser.ts'
 
+/** Read the desktop product version; every shell-owned document may use it. */
+const appVersion = (): Promise<string> => ipcRenderer.invoke(DESKTOP_IPC.versionGet) as Promise<string>
+
+/** fork: clear the local enterprise session and restart into the login flow. */
+const enterpriseLogout = (mode: 'logout' | 'switch'): Promise<void> =>
+  ipcRenderer.invoke('dsh-desktop:enterprise-logout', { mode }) as Promise<void>
+
 function createProductApi(): DshDesktopProductApi {
   return {
     protocolVersion: 1,
     browser: createDesktopBrowserBridge(),
+    appVersion,
+    enterpriseLogout,
     updates: {
       status: () => ipcRenderer.invoke(DESKTOP_IPC.updatesStatus) as Promise<DesktopUpdatePresentation>,
       open: () => ipcRenderer.invoke(DESKTOP_IPC.updatesOpen) as Promise<void>,
@@ -23,6 +38,22 @@ function createProductApi(): DshDesktopProductApi {
       },
     },
   }
+}
+
+/**
+ * fork: 登录窗（`dsh-app://shell/login.html`）的桥面。
+ * 企业凭据只经 IPC 交给主进程，页面自身不发起网络请求。
+ */
+const login: DshDesktopLoginApi = {
+  protocolVersion: 1,
+  appVersion,
+  locale: () => ipcRenderer.invoke(DESKTOP_IPC.localeGet) as ReturnType<DshDesktopLoginApi['locale']>,
+  enterprise: {
+    context: () => ipcRenderer.invoke('dsh-desktop:enterprise-login-context') as Promise<unknown>,
+    submit: payload =>
+      ipcRenderer.invoke('dsh-desktop:enterprise-login-submit', payload) as ReturnType<DshDesktopLoginApi['enterprise']['submit']>,
+    complete: () => ipcRenderer.invoke('dsh-desktop:enterprise-login-complete') as Promise<void>,
+  },
 }
 
 if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
@@ -60,9 +91,15 @@ markDocumentPlatform()
 syncWindowFullscreen()
 syncNativeTheme()
 // Main-process IPC also verifies the owning window and top frame.
-contextBridge.exposeInMainWorld('dshDesktop', location.protocol === `${SCHEME}:` && location.hostname === 'app' ? createProductApi() : { protocolVersion: 1 })
+const ownedDocument = location.protocol === `${SCHEME}:`
+const appDocument = ownedDocument && location.hostname === 'app'
+// fork: only the login document receives the enterprise login bridge.
+const loginDocument = ownedDocument && location.hostname === 'shell' && location.pathname === '/login.html'
+contextBridge.exposeInMainWorld('dshDesktop', appDocument
+  ? createProductApi()
+  : loginDocument ? login : { protocolVersion: 1 })
 
-if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
+if (appDocument) {
   contextBridge.exposeInMainWorld('__DSH_LOCALE__', {
     read: () => ipcRenderer.invoke(DESKTOP_IPC.localeBootstrap),
     onChange: (locale: string) => { ipcRenderer.send(DESKTOP_IPC.localeChanged, locale) },

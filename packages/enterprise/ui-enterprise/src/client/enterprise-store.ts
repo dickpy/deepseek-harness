@@ -5,7 +5,7 @@
  * 「技能广场」消费的状态。
  */
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { decodeHome, type EnterpriseHome } from './home-catalog.ts'
 import { decodeExamples, type HomeExample } from './home-examples.ts'
 
@@ -139,7 +139,7 @@ export interface EnterpriseBadgeState {
  */
 export function decodeEnterpriseSection(section: unknown): EnterpriseSection {
   return typeof section === 'object' && section !== null && !Array.isArray(section)
-    ? section as EnterpriseSection
+    ? section
     : {}
 }
 
@@ -320,7 +320,7 @@ export function decodeConnectors(value: unknown): readonly EnterpriseConnector[]
 
 /** 跟随设置作用域的徽标状态源（uSES 经 ui-renderer 的 bindSnapshotSelector）。 */
 export class EnterpriseSessionStore {
-  private readonly scope: SettingsScope<EnterpriseSection>
+  private readonly scope: ConfigForm<EnterpriseSection>
   readonly store: SnapshotStore<EnterpriseBadgeState> = createSnapshotStore<EnterpriseBadgeState>({
     status: 'loading',
     name: '',
@@ -342,7 +342,7 @@ export class EnterpriseSessionStore {
   private connectors: readonly EnterpriseConnector[] = []
 
   /** @param scope - `dsh-enterprise` 设置命名空间的作用域。 */
-  constructor(scope: SettingsScope<EnterpriseSection>) {
+  constructor(scope: ConfigForm<EnterpriseSection>) {
     this.scope = scope
   }
 
@@ -479,7 +479,7 @@ export class EnterpriseSessionStore {
       state.status = 'ready'
       state.name = typeof user?.name === 'string' ? user.name : ''
       state.role = typeof user?.role === 'string' ? user.role : ''
-      state.menus = Array.isArray(value?.menus) ? value.menus.filter(m => typeof m === 'string') : []
+      state.menus = Array.isArray(value?.menus) ? value.menus.filter((m: unknown): m is string => typeof m === 'string') : []
       state.home = value === undefined || value.home === undefined ? null : decodeHome(value.home)
       state.examples = decodeExamples(value?.examples)
       state.skills = [

@@ -10,12 +10,14 @@
  * 技能调用手势是 dsh 的 tool-skill 按空白分隔的 `/name` 词元识别的，
  * 所以这里只负责把文本填进去，不自己解析技能。
  */
+// Type-only: registers the mainView Session reference source.
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
   IWorkspaces, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /**
@@ -78,8 +80,8 @@ function targetWorkspace(
 export async function composeDraft(ctx: ClientContext, draft: string): Promise<void> {
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
-  const navigation = ctx.get('uiWorkspace') as unknown as WorkspaceNavigation
-  const conversation = ctx.get('conversation') as IConversation | undefined
+  const navigation = ctx.get('uiWorkspace') as WorkspaceNavigation
+  const conversation = ctx.get('conversation')
   ctx.layout.selectPanel(null)
   const list = workspaces.list.getSnapshot()
   if (list.phase !== 'ready' || conversation === undefined) {

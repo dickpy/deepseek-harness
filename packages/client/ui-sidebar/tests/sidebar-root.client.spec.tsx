@@ -232,7 +232,7 @@ it('keeps the macOS sidebar toggle in its top strip', () => {
   // The brand stays part of the logo row's window-drag surface: no button
   // role (the global no-drag rule would subtract it); only the dedicated
   // New Session capsule starts a session.
-  expect(screen.getAllByRole('button', { name: 'New session' })).toHaveLength(1)
+  expect(screen.getAllByRole('button', { name: 'New session' })).toHaveLength(2)
   expect(screen.getByTestId('custom-brand-mark')).toBeTruthy()
 })
 

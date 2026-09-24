@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   EnterpriseSessionStore,
   decodeConnectors,
@@ -28,7 +28,7 @@ const SKILLS = [
 
 /** 一个可写的假设置作用域：记录 set/unset 调用并按需发布新快照。 */
 function fakeScope(section: EnterpriseSection) {
-  let snapshot: SettingsScopeSnapshot<EnterpriseSection> = {
+  let snapshot: ConfigFormSnapshot<EnterpriseSection> = {
     status: 'ready',
     value: section,
     base: undefined,
@@ -39,20 +39,21 @@ function fakeScope(section: EnterpriseSection) {
   }
   const listeners = new Set<() => void>()
   const writes: { field: string; value: unknown }[] = []
-  const scope: SettingsScope<EnterpriseSection> = {
+  const scope: ConfigForm<EnterpriseSection> = {
     getSnapshot: () => snapshot,
     subscribe(listener: () => void) {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
     },
-    async mutate() {},
+    async mutate() { return true },
     async set(field: string, next: unknown) {
       writes.push({ field, value: next })
       const value = { ...(snapshot.value ?? {}), [field]: next }
       snapshot = { ...snapshot, value, user: value }
       for (const listener of listeners) listener()
+      return true
     },
-    async unset() {},
+    async unset() { return true },
   }
   return { scope, writes }
 }

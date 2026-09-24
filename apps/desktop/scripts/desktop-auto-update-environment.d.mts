@@ -2,15 +2,31 @@
 export const DESKTOP_AUTO_UPDATE_ENV: 'DSH_DESKTOP_AUTO_UPDATE_ENV'
 
 /** Supported Desktop update deployment. */
-export type DesktopAutoUpdateEnvironment = 'test' | 'production'
+export type DesktopAutoUpdateEnvironment = 'test' | 'production' | 'enterprise'
 
 /** Directory name of one supported Desktop release target. */
 export type DesktopAutoUpdateTarget = 'mac-arm64' | 'mac-x64' | 'win-x64'
+
+/** Update channel published beside one release target. */
+export type DesktopUpdateChannel = 'latest' | 'nightly'
+
+/** 维小智发布产物的文件名前缀。 */
+export const DESKTOP_ARTIFACT_PREFIX: string
+
+/**
+ * Return the electron-builder artifact base name for one release target.
+ * @param version - Desktop semantic version.
+ * @param os - Target operating system segment (`mac` or `win`).
+ * @param arch - Target architecture segment.
+ * @returns Artifact base name without its extension.
+ */
+export function desktopArtifactBasename(version: string, os: string, arch: string): string
 
 /** Public updater URL and object prefixes for one release target. */
 export interface DesktopAutoUpdateConfig {
   readonly environment: DesktopAutoUpdateEnvironment
   readonly target: DesktopAutoUpdateTarget
+  readonly channel: DesktopUpdateChannel
   readonly origin: string
   readonly publicUrl: string
   readonly keyPrefix: string
@@ -19,6 +35,7 @@ export interface DesktopAutoUpdateConfig {
 
 /** Public updater URL and private COS destination for one upload target. */
 export interface DesktopUploadConfig extends DesktopAutoUpdateConfig {
+  readonly environment: 'test' | 'production'
   readonly bucket: string
   readonly secretIdEnvName: string
   readonly secretKeyEnvName: string
@@ -55,11 +72,13 @@ export function desktopBuildRecordFilename(target: DesktopAutoUpdateTarget): str
  * Return the electron-builder channel metadata filename for an application version.
  * @param version - Desktop semantic version.
  * @param platform - Target platform.
+ * @param channel - Update channel prefix; defaults to nightly.
  * @returns Channel metadata filename emitted for the target.
  */
 export function desktopUpdateMetadataFilename(
   version: string,
   platform: NodeJS.Platform,
+  channel?: DesktopUpdateChannel,
 ): string
 
 /**
