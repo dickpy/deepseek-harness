@@ -48,6 +48,14 @@ describe('official browser-brand plugin', () => {
     for (const hole of HOLES) expect(subject.slots.entries(hole)).toHaveLength(0)
   })
 
+  it('fills the desktop brand slots without an official profile marker', async () => {
+    vi.stubEnv('DSH_CLIENT_BUILD_PROFILE', 'local')
+    vi.stubGlobal('dshDesktop', {})
+    const subject = await bench()
+    await subject.ctx.plugin({ inject: [...inject], apply }).await()
+    for (const hole of HOLES) expect(subject.slots.entries(hole)).toHaveLength(1)
+  })
+
   it('fills declarations before or after apply and removes every occupant on teardown', async () => {
     vi.stubEnv('DSH_CLIENT_BUILD_PROFILE', 'official')
     const before = await bench()
