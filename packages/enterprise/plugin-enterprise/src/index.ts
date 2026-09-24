@@ -57,6 +57,11 @@ interface ModelAssignment {
   apiKey: string
 }
 
+/** DeepSeek V4 OpenAI-compatible gateways expose the same thinking levels as the official route. */
+function enterpriseReasoningModel(model: string): boolean {
+  return /^deepseek-v4-(?:flash|pro)(?:$|[-_])/iu.test(model)
+}
+
 /** 管理台下发的技能元数据（正文按需另拉） */
 interface SkillSummary {
   name: string
@@ -545,7 +550,21 @@ async function applyModelAssignment(ctx: EnterpriseCtx, model: ModelAssignment):
           api: 'openai-completions',
           baseURL: model.baseUrl,
           apiKeyEnv: MODEL_KEY_REF,
-          models: [{ id: model.model }],
+          models: [{
+            id: model.model,
+            ...enterpriseReasoningModel(model.model)
+              ? {
+                reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' },
+                compat: {
+                  supportsStore: false,
+                  supportsDeveloperRole: false,
+                  maxTokensField: 'max_tokens',
+                  requiresReasoningContentOnAssistantMessages: true,
+                  thinkingFormat: 'deepseek',
+                },
+              }
+              : {},
+          }],
         },
       },
     })

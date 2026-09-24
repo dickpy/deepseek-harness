@@ -460,7 +460,7 @@ export function ModelSelect(
                 <div className={css.empty}>{t('empty.models')}</div>
               )}
               {openSettings !== undefined && (
-                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={openSettings}>
+                <button ref={itemRef()} type="button" role="menuitem" className={css.menuAction} onClick={openSettings}>
                   <span className={css.cellLabel}>{t('menu.configure')}</span>
                 </button>
               )}
