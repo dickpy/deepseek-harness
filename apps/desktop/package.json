@@ -2,7 +2,6 @@
   "name": "@deepseek-ai/dsh-desktop",
   "description": "Electron desktop shell for a bundled dsh runtime and external plugins",
   "version": "0.0.7",
-
   "private": true,
   "license": "MIT",
   "type": "module",
