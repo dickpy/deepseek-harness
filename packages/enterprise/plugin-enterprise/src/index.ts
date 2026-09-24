@@ -563,7 +563,14 @@ async function sync(
   identity: EnterpriseDeviceIdentity,
   getSettings: () => SessionSettings,
 ): Promise<void> {
-  await reportDevice(config, token, identity)
+  try {
+    await reportDevice(config, token, identity)
+  } catch (error) {
+    // Backward compatibility: older management servers do not implement
+    // /client/device-info yet. Device reporting is non-authoritative metadata;
+    // never let it block the authoritative /client/config synchronization.
+    log('设备信息上报失败（继续拉取企业配置）：', error)
+  }
   const cloud = await request<CloudConfig>(config.serverUrl, 'GET', '/client/config', undefined, token)
   // 首页目录要区分「平台没配过」（字段缺省）与「管理员删空了」（空数组）：
   // 服务端未下发的字段不回写，避免把已下发的目录清掉。
