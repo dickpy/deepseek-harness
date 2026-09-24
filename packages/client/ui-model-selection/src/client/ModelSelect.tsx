@@ -52,7 +52,7 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * @returns the trigger and, while open, the two-level menu.
  */
 export function ModelSelect(
-  { locked, available, directory, load, select, t }:
+  { locked, available, directory, load, select, openSettings, t }:
   ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
 ) {
   const state = useSyncExternalStore(
@@ -458,6 +458,11 @@ export function ModelSelect(
               </div>
               {state.status === 'ready' && choices.length === 0 && (
                 <div className={css.empty}>{t('empty.models')}</div>
+              )}
+              {openSettings !== undefined && (
+                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={openSettings}>
+                  <span className={css.cellLabel}>{t('menu.configure')}</span>
+                </button>
               )}
             </>
           )}

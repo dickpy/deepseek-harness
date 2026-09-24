@@ -413,6 +413,7 @@ describe('ModelSelect keyboard walk', () => {
       available
       directory={directory}
       load={load}
+      openSettings={vi.fn()}
       select={vi.fn().mockResolvedValue({ ok: true, value: undefined })}
       t={t}
     />)
