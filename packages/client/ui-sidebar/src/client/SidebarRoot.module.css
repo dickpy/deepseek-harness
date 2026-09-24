@@ -583,6 +583,12 @@
   display: flex;
 }
 
+/* fork: the bundled dsh-context shortcut is redundant in the enterprise foot;
+   its context tab remains available while the footer stays user + settings. */
+.footerActions :global(.lc-ov-entry) {
+  display: none;
+}
+
 .settingsArea {
   flex: 0 0 auto;
   display: flex;

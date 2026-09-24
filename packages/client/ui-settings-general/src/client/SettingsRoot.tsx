@@ -10,7 +10,7 @@
  * sessions-derived empty-Hero fact is active. Visible dialog chrome belongs
  * to the step, so a mounted-but-deciding step paints nothing here.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import {
   ConnectionIndicator,
@@ -18,6 +18,7 @@ import {
   IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConnectionIndicatorState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { isEnterpriseHidden, subscribeEnterpriseHidden } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './shell-contract.ts'
 import css from './SettingsRoot.module.css'
 import { DesktopUpdateIndicator } from './DesktopUpdateIndicator.tsx'
@@ -150,6 +151,11 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
   const rows = useSections(s => s)
   const desktopUpdate = useDesktopUpdate(state => state)
   const connectionState = useConnectionState(state => state)
+  const settingsLauncherHidden = useSyncExternalStore(
+    subscribeEnterpriseHidden,
+    () => isEnterpriseHidden('settings.launcher'),
+    () => false,
+  )
   const previousConnectionState = useRef(connectionState)
   const onboardingSteps = useOnboardingSteps(s => s)
   const onboardingActive = useSessions((state) => {
@@ -225,17 +231,29 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
   return (
     <>
       <div ref={triggerRow} className={clsx(css.triggerRow, !wide && css.railRow)}>
-        {renderSlot('settings.launcher', { wide, openSettings: () => { setOpen(true) }, openOnboarding: (id) => { setOpen(false); setRequestedOnboarding(id) } }, { fallback: <button
-          ref={triggerButton}
-          type="button"
-          className={clsx(css.trigger, !wide && css.rail)}
-          aria-label={t('trigger')}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          onClick={() => { setOpen(true) }}
-        >
-          {renderSlot('settings.trigger', { wide })}
-        </button> })}
+        {settingsLauncherHidden
+          ? <button
+            ref={triggerButton}
+            type="button"
+            className={clsx(css.trigger, !wide && css.rail)}
+            aria-label={t('trigger')}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            onClick={() => { setOpen(true) }}
+          >
+            {renderSlot('settings.trigger', { wide })}
+          </button>
+          : renderSlot('settings.launcher', { wide, openSettings: () => { setOpen(true) }, openOnboarding: (id) => { setOpen(false); setRequestedOnboarding(id) } }, { fallback: <button
+            ref={triggerButton}
+            type="button"
+            className={clsx(css.trigger, !wide && css.rail)}
+            aria-label={t('trigger')}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            onClick={() => { setOpen(true) }}
+          >
+            {renderSlot('settings.trigger', { wide })}
+          </button> })}
         <ConnectionIndicator
           state={wide && desktopUpdate.presentation?.phase !== 'installing' ? connectionIndicator : undefined}
           disconnectedLabel={t('connection.error')}

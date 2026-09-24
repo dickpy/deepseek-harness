@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
+import { setEnterpriseHidden, type GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useState } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -18,6 +18,7 @@ const usePanelInfo: GlobalStandardProps['usePanelInfo'] = selector => selector({
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  setEnterpriseHidden([])
 })
 
 type Row = { id: string; order: number; label: string }
@@ -445,6 +446,13 @@ it('explicitly reopens one onboarding editor during an existing session', () => 
   act(() => { (call?.[1] as { complete: () => void }).complete() })
   renderSlot.mockClear()
   expect(screen.queryByTestId('onboarding')).toBeNull()
+})
+
+it('keeps the standard settings trigger when enterprise hides the launcher', () => {
+  act(() => { setEnterpriseHidden(['settings.launcher']) })
+  const { renderSlot } = mount()
+  expect(renderSlot.mock.calls.some(call => call[0] === 'settings.launcher')).toBe(false)
+  expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
 })
 
 it('opens Account from the contributed sidebar launcher', () => {
