@@ -15,6 +15,9 @@ import type {
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // Type-only: pulls the settings slot declarations the shell renders into.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { PropsStore } from '@deepseek-ai/dsh-client-store'
+import type { createSettingsShellStore } from './shell-store.ts'
+import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { DesktopUpdateView } from '../types.ts'
 import type { SettingsPanelController } from './settings-panel.ts'
 
@@ -44,6 +47,8 @@ export type SettingsRootInjected = {
   /** Open one settings section from a feature-owned entry point. */
   settingsPanel: SettingsPanelController
   hooks: {
+    /** Effective command presentation, shared with the reference. */
+    shortcuts: HostObservable<readonly ShortcutCatalogEntry[]>
     /** Shared Electron status for both sidebar locations. */
     desktopUpdate: HostObservable<DesktopUpdateView>
     /** Connection-owned state for the current Host connection. */
@@ -58,8 +63,8 @@ export type SettingsRootInjected = {
 /**
  * Full component props of the settings shell root: the sidebar owner share
  * (wide/rail state) plus the declared render shares and the injected face
- * (hooks compartment bound to useSections). No store is registered — modal
- * open state and active section id are component-local viewing state.
+ * (hooks compartment bound to useSections). The declared store shares modal
+ * visibility and section selection with application commands.
  */
 export type SettingsRootComponentProps =
   PropsRuntime<'sidebar.settings'>
@@ -74,3 +79,4 @@ export type SettingsRootComponentProps =
   >
   & InjectFace<SettingsRootInjected>
   & PropsLocale<'settings'>
+  & PropsStore<ReturnType<typeof createSettingsShellStore>>

@@ -106,9 +106,8 @@ function mount(
 describe('WelcomeNotice', () => {
   it('uses the exact owner copy in both GUI locales', () => {
     expect(WELCOME_NOTICE_COPY.en).toEqual({
-      title: 'Internal Testing Notice',
-      body: "维小智 0.1 remains in testing for developers. Many areas need further improvement, and we welcome feedback from the developer community. 维小智's core plugins and foundational APIs will continue to evolve rapidly over the coming months.\n\nWe look forward to exploring the limits of intelligence with developers around the world, building on open-source, open, reusable, and composable infrastructure. We welcome developers everywhere to join the 维小智 plugin ecosystem.",
-      continueLabel: 'Continue',
+      title: 'Preview Notice',
+      body: '维小智 0.0.8 is built on dsh 0.2 preview. Many areas still need continued improvement and refinement, and we welcome feedback from all users and developers. Developer-related advanced features can be enabled in the settings. 维小智 product features and plugin APIs will continue rapid iteration and will gradually stabilize over time.\n\nWe look forward to exploring the limits of intelligence together with users and developers around the world, building on open-source, reusable, and composable infrastructure. We welcome everyone to bring their ideas to life with 维小智 and participate in the community to enrich the plugin ecosystem.',      continueLabel: 'Continue',
     })
     expect(en.welcomeBody).toBe(WELCOME_NOTICE_COPY.en.body)
     expect(zh.welcomeBody).toBe(WELCOME_NOTICE_COPY.zh.body)
@@ -132,8 +131,8 @@ describe('WelcomeNotice', () => {
     expect(screen.getByRole('dialog')).toBeTruthy()
   })
 
-  it('completes only after the acknowledgement write commits', async () => {
-    const h = mount()
+  it('requires a fresh acknowledgement after the 0.1 notice', async () => {
+    const h = mount('2026-08-13.1')
     await screen.findByRole('dialog')
     fireEvent.click(screen.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel }))
     await act(async () => { await Promise.resolve() })

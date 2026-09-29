@@ -297,7 +297,7 @@ function showLoginWindowUntilSuccess(
       const wait = deps.keepOpenUntil ?? Promise.resolve()
       void Promise.race([
         wait,
-        new Promise<void>(resolveWait => {
+        new Promise<void>((resolveWait) => {
           const timer = setTimeout(resolveWait, 30_000)
           timer.unref()
         }),

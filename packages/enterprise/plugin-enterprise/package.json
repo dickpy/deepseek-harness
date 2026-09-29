@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-plugin-enterprise",
-  "version": "0.1.7-rc.1",
+  "version": "0.2.0-rc.1",
   "description": "企业版内置插件：设备注册、云端模型下发应用、用量遥测上报（dsh-enterprise 管理平台配套）",
   "type": "module",
   "main": "lib/index.js",

@@ -58,7 +58,13 @@ describe('installer preparation preserves application dependencies', () => {
       const aboutIcon = config.extraResources.find(resource => resource.to === 'icon.png')
       expect(aboutIcon).toBeDefined()
       expect(readFileSync(aboutIcon!.from)).toEqual(readFileSync(new URL('../build/icon.png', import.meta.url)))
-      const packager = new Packager({ projectDir: tmpdir() })
+      // Only the Windows package carries the tray bitmap; macOS keeps the Dock.
+      const trayIcon = config.extraResources.find(resource => resource.to === 'tray.ico')
+      if (platform === 'win32') {
+        expect(readFileSync(trayIcon!.from)).toEqual(readFileSync(new URL('../resources/tray-windows.ico', import.meta.url)))
+      } else {
+        expect(trayIcon).toBeUndefined()
+      }      const packager = new Packager({ projectDir: tmpdir() })
       // A foreign source-build target avoids rebuilding modules; the real dependency ownership decision still runs.
       Object.defineProperties(packager, {
         config: { value: { beforeBuild: config.beforeBuild, buildDependenciesFromSource: true } },

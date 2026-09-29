@@ -32,7 +32,7 @@ export const zh = {
   'expand': '展开',
   'back': '返回',
   'brand.localBuild': '维小智',
-  'unknown': '未知',
+  'workspace.defaultName': '默认工作区',  'unknown': '未知',
   'none': '无',
   'truncated': '已截断',
   'json.label': 'JSON',

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import type { NotarizeOptions } from '@electron/notarize'
 import {
   resolveDesktopAppId,
@@ -44,6 +45,12 @@ describe('desktop macOS release signature', () => {
     expect(config.protocols).toEqual([{ name: '维小智', schemes: ['dsh'] }])
     expect(portablePath(config.directories.output)).toContain('/.desktop-build/targets/mac-arm64/artifacts')
     expect(config.mac.extendInfo.NSMicrophoneUsageDescription).toContain('microphone')
+    expect(config.mac.entitlementsInherit).toBe(config.mac.entitlements)
+    const entitlements = readFileSync(config.mac.entitlements, 'utf8')
+    for (const key of ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.allow-unsigned-executable-memory',
+      'com.apple.security.cs.disable-library-validation', 'com.apple.security.device.audio-input']) {
+      expect(entitlements).toContain(`<key>${key}</key>\n    <true/>`)
+    }
     expect(config.extraResources).toHaveLength(3)
     expect(config.extraResources[0]?.to).toBe('runtime')
     expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
@@ -118,8 +125,8 @@ describe('desktop macOS release signature', () => {
       DSH_DESKTOP_UNSIGNED_OUT_DIR: '/tmp/unsigned-artifacts',
     }, 'win32', 'x64')
     expect(portablePath(config.directories.output)).toBe('/tmp/unsigned-artifacts')
-    expect(config.nsis.include).toBeUndefined()
-    expect(portablePath(config.nsis.installerSidebar)).toMatch(/\/installer\/assets\/sidebar\.bmp$/u)
+    expect(config.nsis.include).toContain('installer.nsh')
+    expect(portablePath(config.nsis.installerSidebar)).toMatch(/\/installer-ui\/uninstaller-sidebar\.bmp$/u)
     expect(config).toMatchObject({
       win: { forceCodeSigning: false, signtoolOptions: { sign: undefined } },
       publish: null,

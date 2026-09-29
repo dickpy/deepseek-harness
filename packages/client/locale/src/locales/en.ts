@@ -34,7 +34,7 @@ export const en = {
   'expand': 'Expand',
   'back': 'Back',
   'brand.localBuild': '维小智',
-  'unknown': 'Unknown',
+  'workspace.defaultName': 'Default workspace',  'unknown': 'Unknown',
   'none': 'None',
   'truncated': 'Truncated',
   'json.label': 'JSON',

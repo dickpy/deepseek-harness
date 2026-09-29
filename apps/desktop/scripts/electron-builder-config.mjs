@@ -174,7 +174,8 @@ export function createElectronBuilderConfig(
         to: 'enterprise.json',
       },
       { from: fileURLToPath(new URL('../build/icon.png', import.meta.url)), to: 'icon.png' },
-    ],
+      // Windows tray bitmap; macOS keeps the Dock and ships no menu bar icon.
+      ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),    ],
     mac: {
       icon: fileURLToPath(new URL('../build/icon.png', import.meta.url)),
       category: 'public.app-category.developer-tools',
@@ -186,6 +187,8 @@ export function createElectronBuilderConfig(
       identity: macOSSigning?.signingIdentity,
       forceCodeSigning: true,
       hardenedRuntime: true,
+      entitlements: fileURLToPath(new URL('./macos-entitlements.plist', import.meta.url)),
+      entitlementsInherit: fileURLToPath(new URL('./macos-entitlements.plist', import.meta.url)),
       // ASAR-unpacked native runtime files are pre-signed; PAK resources are sealed by their enclosing bundle.
       signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
       notarize: true,

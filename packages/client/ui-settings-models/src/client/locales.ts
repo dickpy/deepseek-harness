@@ -3,6 +3,7 @@
 /** English strings (the key-set source of truth for this pair). */
 export const en = {
   nav: 'Models',
+  deepSeekAccount: 'DeepSeek Account',
   title: 'Models',
   intro: 'Enter your API keys to use models from the following providers.',
   edit: 'Edit',
@@ -104,9 +105,8 @@ export const en = {
   settingsPathUnresolvable: 'unresolvable settings path',
   create: 'Create provider',
   creating: 'Creating\u2026',
-  welcomeTitle: 'Internal Testing Notice',
-  welcomeBody: "维小智 0.1 remains in testing for developers. Many areas need further improvement, and we welcome feedback from the developer community. 维小智's core plugins and foundational APIs will continue to evolve rapidly over the coming months.\n\nWe look forward to exploring the limits of intelligence with developers around the world, building on open-source, open, reusable, and composable infrastructure. We welcome developers everywhere to join the 维小智 plugin ecosystem.",
-  welcomeContinue: 'Continue',
+  welcomeTitle: 'Preview Notice',
+  welcomeBody: '维小智 0.0.8 is built on dsh 0.2 preview. Many areas still need continued improvement and refinement, and we welcome feedback from all users and developers. Developer-related advanced features can be enabled in the settings. 维小智 product features and plugin APIs will continue rapid iteration and will gradually stabilize over time.\n\nWe look forward to exploring the limits of intelligence together with users and developers around the world, building on open-source, reusable, and composable infrastructure. We welcome everyone to bring their ideas to life with 维小智 and participate in the community to enrich the plugin ecosystem.',  welcomeContinue: 'Continue',
   welcomeError: 'The acknowledgement could not be saved. Please try again.',
   onboardingTitle: 'Add an API key to get started',
   onboardingDescription: 'Configure the official DeepSeek provider to start building.',
@@ -122,6 +122,7 @@ export type ModelsKey = keyof typeof en
 /** Chinese strings (same keys as {@link en}). */
 export const zh: { [Key in keyof typeof en]: string } = {
   nav: '模型',
+  deepSeekAccount: 'DeepSeek 账号',
   title: '模型',
   intro: '填入各提供商的 API 密钥即可使用其模型。',
   edit: '编辑',
@@ -223,9 +224,8 @@ export const zh: { [Key in keyof typeof en]: string } = {
   settingsPathUnresolvable: '无法解析设置路径',
   create: '创建提供商',
   creating: '创建中\u2026',
-  welcomeTitle: '内测声明',
-  welcomeBody: '维小智目前的 0.1 版本仍处在面向开发者进行测试的阶段，还有许多地方需要持续改进和打磨，希望听取广大开发者的反馈建议。预计维小智的核心插件以及基础 API 都会在接下来的一段时间内快速迭代、持续演化。\n\n我们期待与全球开发者一起，在开源、开放、可复用、可组合的基础设施之上，共同探索智能上限。欢迎全球开发者加入维小智插件生态。',
-  welcomeContinue: '继续',
+  welcomeTitle: '预览版说明',
+  welcomeBody: '维小智 0.0.8 基于 dsh 0.2 预览版，还有许多地方需要持续改进和打磨，希望听取广大用户和开发者的反馈建议。开发者相关的进阶功能可在配置中开启使用。预计维小智的产品功能以及插件 API 都会继续快速迭代、持续演化，并逐渐趋于稳定。\n\n我们期待与全球用户和开发者一起，在开源、可复用、可组合的基础设施之上，共同探索智能上限。欢迎大家用维小智将想法变成现实，与社区一起丰富插件生态。',  welcomeContinue: '继续',
   welcomeError: '暂时无法保存确认状态，请重试。',
   onboardingTitle: '添加一个 API Key 开始使用',
   onboardingDescription: '配置 DeepSeek 官方模型，即可开始使用。',

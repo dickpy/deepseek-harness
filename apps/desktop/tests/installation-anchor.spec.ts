@@ -87,6 +87,7 @@ describe('desktop installation anchor', () => {
       }),
       patchPath: join(profileDir, 'cordis.patch.yml'),
       patches: [],
+      skippedBundles: [],
     }
     const generation = await createRuntimeResolution({
       installAnchor: desktopInstallAnchor(runtimeDir), home, profile,
