@@ -34,6 +34,16 @@ import {
   writeMacOSAppUpdateConfig,
 } from './macos-app-update-config.mjs'
 
+/** Read the prepared runtime's own version when the product version is decoupled from dsh. */
+function bundledRuntimeVersion(root) {
+  try {
+    const value = JSON.parse(readFileSync(join(root, 'desktop-runtime.json'), 'utf8'))
+    return typeof value?.release?.version === 'string' ? value.release.version : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Create electron-builder configuration from one release environment.
  * @param {NodeJS.ProcessEnv} env - Packaging environment.
@@ -52,10 +62,9 @@ export function createElectronBuilderConfig(
 ) {
   const appId = resolveDesktopAppId(env)
   const policy = resolveDesktopPolicyEnvironment(env)
-  // fork: 安装器形态。classic = electron-builder 经典 NSIS 界面，没有任何现场编译的
-  // 原生 DLL，安全软件（Symantec 的 Heur.AdvML.B 等）不会拦；custom = 上游 0.1.6
-  // 的自绘目录安装器，需要 window-frame.dll。
-  const customInstaller = env.DSH_DESKTOP_INSTALLER === 'custom'
+  // fork: 默认使用带品牌资源的自绘安装器；classic 只作为显式回退值保留。
+  // 自绘安装器需要在 Windows 构建机上编译 window-frame.dll。
+  const customInstaller = env.DSH_DESKTOP_INSTALLER !== 'classic'
   const targetPlatform = env.DSH_DESKTOP_TARGET_PLATFORM
   const resolvedPlatform = targetPlatform ?? hostPlatform
   const resolvedArch = env.DSH_DESKTOP_TARGET_ARCH ?? hostArch
@@ -210,7 +219,8 @@ export function createElectronBuilderConfig(
       // The bundled runtime declares whichever version prepared it: the product version for an ordinary
       // release, and a rewritten one for installed-update qualification.
       await verifyDesktopRuntime(buildPaths.dsh,
-        preparedRuntimeVersion ?? productVersion, { platform: resolvedPlatform, arch: resolvedArch })
+        preparedRuntimeVersion ?? bundledRuntimeVersion(buildPaths.dsh) ?? productVersion,
+        { platform: resolvedPlatform, arch: resolvedArch })
       // Unsigned Windows builds skip electron-builder's afterSign hook.
       if (packagesWindows && unsigned) await verifyWindowsAsarUnpack(buildPaths.dsh, resourcesDir, windowsCode)
     },

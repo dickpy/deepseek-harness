@@ -44,7 +44,7 @@ export interface DesktopElectronBuilderConfig {
     }
   }
   readonly nsis: {
-    // fork: 只有自绘形态注入 installer.nsh；经典形态改用随仓库带的品牌侧栏图，并放开安装目录页。
+    // fork: 默认自绘形态注入 installer.nsh；classic 形态才使用品牌侧栏图和标准安装目录页。
     readonly include?: string
     readonly installerSidebar: string
     readonly uninstallerSidebar: string

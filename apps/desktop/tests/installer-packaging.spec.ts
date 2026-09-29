@@ -40,6 +40,7 @@ describe('installer preparation preserves application dependencies', () => {
     execute.mockClear()
     const env = {
       DSH_DESKTOP_APP_ID: 'com.example.installer',
+      DSH_DESKTOP_INSTALLER: 'classic',
       DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: 'https://policy.example.com',
       DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: JSON.stringify({ allowedAuthOrigins: ['https://login.example.com'] }),
       DSH_DESKTOP_TARGET_PLATFORM: platform,
@@ -67,13 +68,13 @@ describe('installer preparation preserves application dependencies', () => {
       vi.spyOn(packager, 'getWorkspaceRoot').mockResolvedValue(tmpdir())
       await packager.installAppDependencies(process.platform === 'win32' ? Platform.LINUX : Platform.WINDOWS, Arch.x64)
       expect(packager.areNodeModulesHandledExternally).toBe(false)
-      // 默认 classic 安装器不现场编译 window-frame.dll。
+      // 该用例显式选择 classic 安装器，因此不现场编译 window-frame.dll。
       expect(execute).toHaveBeenCalledTimes(0)
     } finally {
       vi.unstubAllEnvs()
       vi.restoreAllMocks()
     }
-  })
+  }, 15_000)
 
   it('names unsigned Windows artifacts so they cannot pass for release builds', async () => {
     const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
