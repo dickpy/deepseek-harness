@@ -47,6 +47,7 @@ const PNPM_BUILD_STATE = BUILD_PATHS.dshPnpm
 const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
 const NODE = join(BUILD_PATHS.electron, process.platform === 'win32' ? 'electron.exe' : 'Electron.app/Contents/MacOS/Electron')
 const PNPM = join(RUNTIME_ROOT, 'pnpm', 'bin', 'pnpm.mjs')
+const NPM_REGISTRY = process.env.DSH_DESKTOP_NPM_REGISTRY ?? 'https://registry.npmjs.org/'
 
 function manifestVersion(path: string, subject: string): string {
   const manifest = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
@@ -154,7 +155,7 @@ function runPnpm(args: readonly string[]): Promise<void> {
     const child = spawn(NODE, [
       '--expose-internals',
       PNPM,
-      '--config.registry=https://registry.npmjs.org/',
+      `--config.registry=${NPM_REGISTRY}`,
       `--config.store-dir=${STORE_ROOT}`,
       '--config.enable-global-virtual-store=false',
       `--config.userconfig=${userConfig}`,
@@ -166,7 +167,7 @@ function runPnpm(args: readonly string[]): Promise<void> {
         ...Object.fromEntries(Object.entries(process.env).filter(([name]) => (
           name !== 'NODE_OPTIONS' && name !== 'NODE_PATH' && !/^DSH_DESKTOP_/u.test(name) && !/^(?:npm|pnpm|corepack)_/iu.test(name)
         ))),
-        NPM_CONFIG_REGISTRY: 'https://registry.npmjs.org/',
+        NPM_CONFIG_REGISTRY: NPM_REGISTRY,
         NPM_CONFIG_STORE_DIR: STORE_ROOT,
         NPM_CONFIG_USERCONFIG: userConfig,
         ...desktopNodeEnvironment(NODE, join(RUNTIME_ROOT, 'bin'), {}),
