@@ -279,8 +279,7 @@ export function SidebarRoot({
                 >
                   <BrandIdentity buildVersion={buildVersion} t={t} renderSlot={renderSlot} />
                 </button>
-              </Tooltip>
-            )
+              </Tooltip>            )
         )}
 
       </div>

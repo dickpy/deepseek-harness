@@ -1,14 +1,12 @@
 /** Materialize the complete production runtime before publishing Desktop resources. */
 
-import { spawn, execFile } from 'node:child_process'
-import { copyFileSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { delimiter, dirname, join, relative, resolve } from 'node:path'
+import { packagingStep } from './packaging-step.mjs'
+import { spawn } from 'node:child_process'
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, join, relative, resolve } from 'node:path'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
-import {
-  createRuntimeProjectMetadata,
-  DESKTOP_BUNDLED_PLUGINS,
-  desktopOptionalBundleDependencies,
-} from '../src/project-manager.ts'
+import { createRuntimeProjectMetadata } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { parseDesktopRelease, type DesktopRelease } from '../src/release.ts'
 import {
@@ -20,34 +18,31 @@ import {
   verifyDesktopCoreLockfile,
 } from '../src/core-package-set.ts'
 import { smokePrimaryRuntime } from './prepare-primary-runtime.ts'
-import { smokeDesktopRuntime } from './smoke-runtime.ts'
+import { smokePreparedRuntime } from './smoke-prepared-runtime.ts'
+import { prepareRuntimeManifests } from './prepare-runtime-manifests.ts'
 import { writeDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import {
   resolveDesktopAppId,
   resolveMacOSSigningEnvironment,
+  resolveNpmRegistry,
 } from './desktop-release-environment.mjs'
 import {
   signMacOSRuntime,
 } from './macos-runtime.ts'
-import { resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { desktopTargetPlatform, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { desktopRuntimeFileExclusion } from './runtime-file-policy.ts'
 import { selectOfficeEngine } from '../../../scripts/libreoffice-packages.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()
 const DSH_OUTPUT_ROOT = BUILD_PATHS.dsh
-// fork: 工作目录与 store 都必须位于构建根所在磁盘。
-// store 原先在系统临时目录里、每次构建重新下载全部依赖（实测 258 个包 / 2m41s）；
-// 但它与临时目录分属不同盘时 pnpm 无法硬链接，只能逐文件复制。
-// 两者同置于目标构建目录下即可同时获得「下载复用」与「硬链接物化」。
-const BUILD_ROOT = BUILD_PATHS.dshRuntimeBuild
-const STORE_ROOT = BUILD_PATHS.dshPnpmStore
+const BUILD_ROOT = mkdtempSync(join(tmpdir(), 'dsh-desktop-runtime-'))
+const STORE_ROOT = join(BUILD_ROOT, 'store')
 const RUNTIME_ROOT = BUILD_PATHS.runtime
 const PNPM_BUILD_STATE = BUILD_PATHS.dshPnpm
 const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
 const NODE = join(BUILD_PATHS.electron, process.platform === 'win32' ? 'electron.exe' : 'Electron.app/Contents/MacOS/Electron')
 const PNPM = join(RUNTIME_ROOT, 'pnpm', 'bin', 'pnpm.mjs')
-const NPM_REGISTRY = process.env.DSH_DESKTOP_NPM_REGISTRY ?? 'https://registry.npmjs.org/'
 
 function manifestVersion(path: string, subject: string): string {
   const manifest = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
@@ -55,85 +50,12 @@ function manifestVersion(path: string, subject: string): string {
   return manifest.version
 }
 
-/**
- * Require every bundled third-party plugin to be installed at its pinned
- * version, and report the names for the runtime inventory. A range in the
- * pinned table would let the lockfile drift past the version this build was
- * validated against, so the comparison is exact.
- * @param modules - Installed production `node_modules` of the runtime project.
- * @returns Bundled plugin names in deterministic order.
- */
-function verifyBundledPlugins(modules: string): string[] {
-  return Object.entries(DESKTOP_BUNDLED_PLUGINS)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, version]) => {
-      const manifest = join(modules, ...name.split('/'), 'package.json')
-      if (!existsSync(manifest)) {
-        throw new Error(`desktop runtime: bundled plugin ${name} was not installed`)
-      }
-      const installed = manifestVersion(manifest, `bundled plugin ${name}`)
-      if (installed !== version) {
-        throw new Error(`desktop runtime: bundled plugin ${name}@${installed} does not match the pinned ${version}`)
-      }
-      return name
-    })
-}
-
-/**
- * Hardlinking is skipped on macOS: signing rewrites the materialized runtime in
- * place afterwards, which would mutate the shared pnpm store copy through the link.
- */
-const MATERIALIZE_LINKS = process.platform !== 'darwin'
-
-/**
- * Materialize installed modules into the runtime tree.
- *
- * The tree is roughly eleven thousand files. On Windows a byte copy costs
- * minutes because every write passes the filesystem filter drivers, while
- * linking the same bytes is metadata-only. Names, contents, and the resulting
- * file set are identical either way, so the runtime descriptor and its
- * integrity check describe the same tree; anything the filesystem refuses to
- * link falls back to a copy.
- * @param source - Installed `node_modules`.
- * @param destination - Runtime-tree `node_modules`.
- * @param include - Whether one source path belongs in the runtime tree.
- */
-function materializeModules(
-  source: string,
-  destination: string,
-  include: (source: string) => boolean,
-): void {
-  if (!include(source)) return
-  const entry = lstatSync(source)
-  if (entry.isSymbolicLink()) {
-    // The previous copy dereferenced links, so follow one to the same result.
-    materializeModules(realpathSync.native(source), destination, include)
-    return
-  }
-  if (entry.isDirectory()) {
-    mkdirSync(destination, { recursive: true })
-    for (const name of readdirSync(source)) {
-      materializeModules(join(source, name), join(destination, name), include)
-    }
-    return
-  }
-  mkdirSync(dirname(destination), { recursive: true })
-  if (MATERIALIZE_LINKS) {
-    try {
-      linkSync(source, destination)
-      return
-    } catch {
-      // Fall through to the copy path below.
-    }
-  }
-  copyFileSync(source, destination)
-}
-
 function desktopRelease(): DesktopRelease {
-  // fork: 桌面产品版本（apps/desktop/package.json）与 dsh 运行时版本解耦。
-  // 运行时身份始终是内置 @deepseek-ai/dsh 的版本：package set 按它校验，
-  // 打包后的 Host 也上报它，因此这里不能改用产品版本。
-  const version = manifestVersion(resolve(APP_ROOT, '..', '..', 'package.json'), 'dsh package')
+  const version = manifestVersion(join(APP_ROOT, 'package.json'), 'desktop package')
+  const dshVersion = manifestVersion(resolve(APP_ROOT, '..', '..', 'package.json'), 'root dsh package')
+  if (version !== dshVersion) {
+    throw new Error(`desktop runtime: Electron ${version} must bind the same version of @deepseek-ai/dsh, found ${dshVersion}`)
+  }
   const runtime = JSON.parse(readFileSync(join(RUNTIME_ROOT, 'versions.json'), 'utf8')) as Record<string, unknown>
   return parseDesktopRelease({
     schemaVersion: 1,
@@ -148,6 +70,7 @@ function runPnpm(args: readonly string[]): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     const [command, ...commandArgs] = args
     if (command === undefined) throw new Error('desktop runtime: pnpm command is required')
+    const registry = resolveNpmRegistry(process.env)
     const config = join(PNPM_BUILD_STATE, 'config')
     const userConfig = join(config, 'npmrc')
     mkdirSync(config, { recursive: true })
@@ -155,7 +78,7 @@ function runPnpm(args: readonly string[]): Promise<void> {
     const child = spawn(NODE, [
       '--expose-internals',
       PNPM,
-      `--config.registry=${NPM_REGISTRY}`,
+      `--config.registry=${registry}`,
       `--config.store-dir=${STORE_ROOT}`,
       '--config.enable-global-virtual-store=false',
       `--config.userconfig=${userConfig}`,
@@ -167,7 +90,7 @@ function runPnpm(args: readonly string[]): Promise<void> {
         ...Object.fromEntries(Object.entries(process.env).filter(([name]) => (
           name !== 'NODE_OPTIONS' && name !== 'NODE_PATH' && !/^DSH_DESKTOP_/u.test(name) && !/^(?:npm|pnpm|corepack)_/iu.test(name)
         ))),
-        NPM_CONFIG_REGISTRY: NPM_REGISTRY,
+        NPM_CONFIG_REGISTRY: registry,
         NPM_CONFIG_STORE_DIR: STORE_ROOT,
         NPM_CONFIG_USERCONFIG: userConfig,
         ...desktopNodeEnvironment(NODE, join(RUNTIME_ROOT, 'bin'), {}),
@@ -187,43 +110,40 @@ function runPnpm(args: readonly string[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
-  rmSync(PNPM_BUILD_STATE, { recursive: true, force: true })
-  // 固定路径而非 mkdtemp：必须与 store 同盘才能硬链接，且每次重建以丢弃上一轮残留。
-  rmSync(BUILD_ROOT, { recursive: true, force: true })
-  mkdirSync(BUILD_ROOT, { recursive: true })
-  mkdirSync(STORE_ROOT, { recursive: true })
   try {
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:reset', async () => {
+      rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
+      rmSync(PNPM_BUILD_STATE, { recursive: true, force: true })
+      mkdirSync(STORE_ROOT, { recursive: true })
+    })
     const release = desktopRelease()
-    copyFileSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGE_SET_FILE), join(BUILD_ROOT, DESKTOP_PACKAGE_SET_FILE))
-    cpSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGES_DIR), join(BUILD_ROOT, DESKTOP_PACKAGES_DIR), { recursive: true })
-    createRuntimeProjectMetadata(BUILD_ROOT, release)
-    await runPnpm(['install', '--lockfile-only'])
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:stage-packages', async () => {
+      copyFileSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGE_SET_FILE), join(BUILD_ROOT, DESKTOP_PACKAGE_SET_FILE))
+      cpSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGES_DIR), join(BUILD_ROOT, DESKTOP_PACKAGES_DIR), { recursive: true })
+      createRuntimeProjectMetadata(BUILD_ROOT, release)
+    })
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:lockfile', () => runPnpm(['install', '--lockfile-only']))
     verifyDesktopCoreLockfile(
       readFileSync(join(BUILD_ROOT, 'pnpm-lock.yaml'), 'utf8'),
       readDesktopCorePackageSet(BUILD_ROOT, release.version),
     )
-    await runPnpm(['install', '--prod', '--frozen-lockfile', '--trust-lockfile'])
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:install', () => runPnpm(['install', '--prod', '--frozen-lockfile', '--trust-lockfile']))
     const packageSet = readDesktopCorePackageSet(BUILD_ROOT, release.version)
     const targetName = resolveDesktopBuildTarget()
-    const target = { platform: process.platform, arch: targetName.endsWith('arm64') ? 'arm64' : 'x64' }
+    const target = { platform: process.platform, arch: desktopTargetPlatform(targetName).arch }
     const modules = join(BUILD_ROOT, 'node_modules')
-    const bundledPlugins = verifyBundledPlugins(modules)
     const officeManifest = JSON.parse(readFileSync(join(modules, '@deepseek-ai/libreoffice-kit/package.json'), 'utf8'))
     const officeEngine = selectOfficeEngine(officeManifest, target)
     mkdirSync(DSH_OUTPUT_ROOT, { recursive: true })
-    materializeModules(
-      modules,
-      join(DSH_OUTPUT_ROOT, 'node_modules'),
-      source => desktopRuntimeFileExclusion(relative(modules, source), target, officeEngine) === undefined,
-    )
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:materialize-modules', async () => {
+      cpSync(modules, join(DSH_OUTPUT_ROOT, 'node_modules'), {
+        recursive: true, dereference: true,
+        filter: source => desktopRuntimeFileExclusion(relative(modules, source), target, officeEngine) === undefined,
+      })
+    })
     writeFileSync(join(DSH_OUTPUT_ROOT, 'package.json'), `${JSON.stringify({
       name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: release.version, type: 'module',
-      dependencies: Object.fromEntries([
-        ...packageSet.packages.map(entry => [entry.name, entry.version]),
-        ...Object.entries(DESKTOP_BUNDLED_PLUGINS),
-        ...Object.entries(desktopOptionalBundleDependencies(release.version)),
-      ]),
+      dependencies: Object.fromEntries(packageSet.packages.map(entry => [entry.name, entry.version])),
     }, undefined, 2)}\n`)
     for (const file of DESKTOP_HOST_RUNTIME_FILES) {
       if (!existsSync(join(DSH_OUTPUT_ROOT, 'node_modules', DESKTOP_HOST_PACKAGE, file))) {
@@ -234,36 +154,29 @@ async function main(): Promise<void> {
       throw new Error(`desktop runtime: missing required LibreOffice engine ${officeEngine}`)
     }
     if (process.platform === 'darwin') {
-      await signMacOSRuntime(DSH_OUTPUT_ROOT, resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env))
-      await signMacOSRuntime(join(RUNTIME_ROOT, 'primary-runtime'), resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env))
+      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'sign:dsh-native', () => signMacOSRuntime(DSH_OUTPUT_ROOT, resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env), target.arch, join(BUILD_PATHS.root, 'signature-cache')))
+      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'sign:primary-native', () => signMacOSRuntime(join(RUNTIME_ROOT, 'primary-runtime'), resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env), target.arch, join(BUILD_PATHS.root, 'signature-cache')))
     }
-    smokePrimaryRuntime(join(RUNTIME_ROOT, 'primary-runtime'))
-    writeDesktopRuntime(
-      DSH_OUTPUT_ROOT, release,
-      [...packageSet.packages.map(entry => entry.name), ...bundledPlugins],
-      target,
-    )
-    const descriptor = await verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target)
-    await new Promise<void>((accept, reject) => {
-      execFile(NODE, ['--expose-internals', join(APP_ROOT, 'tests/fixtures/runtime-payload-smoke.mjs'), DSH_OUTPUT_ROOT],
-        { timeout: 120_000, env: desktopNodeEnvironment(NODE, join(RUNTIME_ROOT, 'bin'), { ...process.env, NODE_OPTIONS: '' }) }, (error, stdout, stderr) => {
-          if (error !== null) reject(new Error(`desktop native payload smoke failed: ${stderr}`, { cause: error }))
-          else { process.stdout.write(stdout); accept() }
-        })
-    })
-    await smokeDesktopRuntime(
-      DSH_OUTPUT_ROOT, NODE, descriptor,
-      desktopNodeEnvironment(NODE, join(RUNTIME_ROOT, 'bin'), { ...process.env, NODE_OPTIONS: '' }),
-      RUNTIME_ROOT,
-    )
-    await verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target)
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:manifests', () => prepareRuntimeManifests(DSH_OUTPUT_ROOT))
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:primary-smoke', async () => smokePrimaryRuntime(join(RUNTIME_ROOT, 'primary-runtime')))
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:write-descriptor', async () => writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target))
+    const descriptor = await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-before-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
+    if (!process.argv.includes('--defer-runtime-smoke')) {
+      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:smoke', () => smokePreparedRuntime(DSH_OUTPUT_ROOT, NODE, RUNTIME_ROOT, descriptor))
+      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-after-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
+    }
   } catch (error) {
     rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
     throw error
   } finally {
-    // 清工作目录与 pnpm 状态；STORE_ROOT 刻意保留，它是跨构建复用的下载缓存。
-    rmSync(BUILD_ROOT, { recursive: true, force: true })
-    rmSync(PNPM_BUILD_STATE, { recursive: true, force: true })
+    let cleaned = false
+    const cleanup = (): void => {
+      try { rmSync(BUILD_ROOT, { recursive: true, force: true }) }
+      finally { rmSync(PNPM_BUILD_STATE, { recursive: true, force: true }) }
+      cleaned = true
+    }
+    try { await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:cleanup', async () => cleanup()) }
+    finally { if (!cleaned) cleanup() }
   }
 }
 
